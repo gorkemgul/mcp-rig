@@ -44,11 +44,3 @@ def test_readme_documents_end_user_installation() -> None:
     assert "pipx install mcp-rig" in readme
     assert "pip install mcp-rig" in readme
     assert "PyPI publication arrives in a later increment" not in readme
-
-
-def test_release_preflight_installs_packaging_tools_before_use() -> None:
-    release_guide = (ROOT / "docs" / "releasing.md").read_text()
-
-    install_position = release_guide.index("python -m pip install build twine")
-    build_position = release_guide.index("python -m build")
-    assert install_position < build_position

@@ -8,3 +8,5 @@ build/
 report.xml
 graphify-out/
 .superpowers/
+docs/
+AGENTS.md
