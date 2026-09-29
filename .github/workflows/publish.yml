@@ -61,6 +61,8 @@ jobs:
           if actual != expected:
               raise SystemExit(f"unexpected distributions: {sorted(actual)}")
           PY
+      - name: Verify distribution contents
+        run: python scripts/check_distribution_contents.py dist/*
       - name: Check distribution metadata
         run: python -m twine check dist/*
       - name: Smoke-test wheel

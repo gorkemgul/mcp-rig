@@ -33,6 +33,7 @@ ruff check src tests scripts
 pytest -q
 python -m pip check
 python -m build
+python scripts/check_distribution_contents.py dist/*
 python -m twine check dist/*
 ```
 
@@ -40,6 +41,12 @@ Confirm that `dist/` contains only:
 
 - `mcp_rig-0.1.0-py3-none-any.whl`
 - `mcp_rig-0.1.0.tar.gz`
+
+The wheel contains only the `mcp_rig` package and its distribution metadata.
+The source distribution contains only `src/mcp_rig`, `pyproject.toml`,
+`README.md`, `LICENSE`, and the generated `PKG-INFO`. Repository-only content
+such as `AGENTS.md`, `.superpowers/`, `docs/`, `graphify-out/`, tests, and build
+artifacts must never appear in either archive.
 
 ## Publish `v0.1.0`
 
