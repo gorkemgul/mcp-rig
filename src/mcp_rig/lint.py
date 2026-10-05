@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 
 import jsonschema
@@ -11,6 +12,39 @@ from mcp_rig.client import ToolInfo
 
 MIN_DESCRIPTION_WORDS = 5
 SIMILARITY_THRESHOLD = 0.85
+ADDITIVE_VERBS = frozenset(
+    {
+        "add",
+        "append",
+        "book",
+        "charge",
+        "create",
+        "enqueue",
+        "insert",
+        "invite",
+        "notify",
+        "order",
+        "pay",
+        "post",
+        "publish",
+        "register",
+        "send",
+        "submit",
+        "transfer",
+    }
+)
+IDEMPOTENCY_PARAMETERS = frozenset(
+    {
+        "clientrequestid",
+        "clienttoken",
+        "dedupekey",
+        "deduplicationid",
+        "deduplicationkey",
+        "dedupkey",
+        "idempotencykey",
+        "idempotencytoken",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +62,7 @@ def lint_tools(tools: list[ToolInfo]) -> list[LintWarning]:
     for tool in tools:
         warnings.extend(_lint_description(tool))
         warnings.extend(_lint_schema(tool))
+        warnings.extend(_lint_retry_safety(tool))
     warnings.extend(_lint_similar(tools))
     return warnings
 
@@ -65,6 +100,34 @@ def _lint_schema(tool: ToolInfo) -> list[LintWarning]:
                 )
             )
     return warnings
+
+
+def _lint_retry_safety(tool: ToolInfo) -> list[LintWarning]:
+    annotations = tool.annotations
+    if annotations.get("readOnlyHint") is True or annotations.get("idempotentHint") is True:
+        return []
+    words = _name_words(tool.name)
+    looks_additive = len(words) > 1 and words[0] in ADDITIVE_VERBS
+    if not looks_additive and annotations.get("readOnlyHint") is not False:
+        return []
+    properties = tool.input_schema.get("properties")
+    if isinstance(properties, dict) and any(
+        re.sub(r"[^a-z0-9]", "", str(name).lower()) in IDEMPOTENCY_PARAMETERS for name in properties
+    ):
+        return []
+    return [
+        LintWarning(
+            tool.name,
+            "retry-unsafe",
+            "tool has side effects but no idempotency key or idempotentHint; "
+            "a client retry after a lost response may apply it twice",
+        )
+    ]
+
+
+def _name_words(name: str) -> list[str]:
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
+    return [word.lower() for word in re.split(r"[^A-Za-z0-9]+", spaced) if word]
 
 
 def _lint_similar(tools: list[ToolInfo]) -> list[LintWarning]:

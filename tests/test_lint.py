@@ -18,8 +18,9 @@ def tool(
     name: str,
     description: str = "Return the current weather for a city.",
     schema: dict | None = None,
+    annotations: dict | None = None,
 ) -> ToolInfo:
-    return ToolInfo(name, description, GOOD_SCHEMA if schema is None else schema)
+    return ToolInfo(name, description, GOOD_SCHEMA if schema is None else schema, annotations or {})
 
 
 def codes(warnings):
@@ -189,3 +190,37 @@ async def test_fixture_server_exposes_expected_lint_warnings(fixture_spec):
     found = set(codes(warnings))
     assert ("undocumented", "no-description") in found
     assert ("add", "param-no-description") in found
+
+
+@pytest.mark.parametrize("name", ["create_record", "sendEmail", "submit-order", "charge.card", "add_item"])
+def test_additive_tool_without_idempotency_is_retry_unsafe(name):
+    warnings = lint_tools([tool(name)])
+
+    assert codes(warnings) == [(name, "retry-unsafe")]
+    assert "may apply it twice" in warnings[0].message
+
+
+@pytest.mark.parametrize("name", ["add", "create", "get_user", "delete_record", "update_record", "addressbook"])
+def test_reads_bare_verbs_and_naturally_idempotent_verbs_are_not_flagged(name):
+    assert lint_tools([tool(name)]) == []
+
+
+@pytest.mark.parametrize(
+    "parameter",
+    ["idempotency_key", "idempotencyKey", "dedupe_key", "client_request_id", "clientToken", "deduplication-id"],
+)
+def test_idempotency_key_parameter_makes_tool_retry_safe(parameter):
+    schema = {"type": "object", "properties": {parameter: {"type": "string", "description": "Key for retries"}}}
+
+    assert lint_tools([tool("create_record", schema=schema)]) == []
+
+
+@pytest.mark.parametrize("annotations", [{"idempotentHint": True}, {"readOnlyHint": True}])
+def test_idempotent_or_read_only_hints_make_tool_retry_safe(annotations):
+    assert lint_tools([tool("create_record", annotations=annotations)]) == []
+
+
+def test_explicit_side_effect_hint_is_checked_regardless_of_name():
+    warnings = lint_tools([tool("ledger", annotations={"readOnlyHint": False, "idempotentHint": False})])
+
+    assert codes(warnings) == [("ledger", "retry-unsafe")]

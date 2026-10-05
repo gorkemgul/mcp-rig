@@ -314,6 +314,12 @@ about missing or short descriptions, invalid input schemas, undocumented
 parameters, and tool descriptions that are likely to be confused with each
 other.
 
+The `retry-unsafe` warning flags tools that look side-effecting, such as
+`create_record`, `send_email`, or a tool annotated `readOnlyHint: false`, but
+declare neither `idempotentHint: true` nor an idempotency-key parameter such as
+`idempotency_key`. Clients retry calls whose responses are lost, so such a tool
+may apply its effect twice.
+
 Lint warnings are advisory by default. Use `--strict` to make them fail CI:
 
 ```bash
