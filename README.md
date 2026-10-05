@@ -228,6 +228,35 @@ error; code `2` takes precedence when a batch contains both kinds of failure.
 Add `--server-logs` to expose every suite server's stderr while diagnosing
 startup or tool behavior.
 
+### Retries of side-effecting tools
+
+MCP Rig never retries a call. A timeout or closed connection makes that case an
+error and skips the rest of the suite, so a YAML suite cannot express "the
+response was lost, now retry." This matters for tools with side effects: a tool
+can commit and then lose its response, and a retry's JSON can pass `schema`,
+`json_path`, and `snapshot` checks while the operation has happened twice.
+
+Cover this scenario in a Python integration test that checks server state
+directly. `tests/test_lost_response_retry.py` is a worked example built on a
+fixture whose state lives in a file:
+
+```python
+arm_lost_response(ledger, "disconnect")  # the next call commits, then the server exits
+with pytest.raises(BaseException):
+    async with connect(spec) as probe:
+        await probe.call("create_record_idempotent", args)
+async with connect(spec) as probe:       # an explicit retry of the same logical call
+    retry = await probe.call("create_record_idempotent", args)
+
+assert check({"schema": record_schema}, retry) == []  # the response looks fine
+assert len(read_ledger(ledger)["records"]) == 1        # the side effect happened once
+```
+
+Set the expected state from the tool's contract. An unprotected tool should
+produce two records. A tool that accepts an `idempotency_key` argument should
+produce one. That key belongs to the tool's arguments and is not the JSON-RPC
+request ID, which changes with every attempt.
+
 ## Check a server without a suite
 
 Run protocol checks and inspect tool-definition quality without writing YAML:
