@@ -24,38 +24,24 @@ def load_release_module() -> ModuleType:
 def test_expected_tag_comes_from_project_version() -> None:
     release = load_release_module()
 
-    assert release.expected_tag(PYPROJECT) == "v0.1.0"
+    assert release.expected_tag(PYPROJECT) == "v0.1.1"
 
 
 def test_matching_release_tag_is_accepted() -> None:
     release = load_release_module()
 
-    release.validate_release_tag("v0.1.0", PYPROJECT)
+    release.validate_release_tag("v0.1.1", PYPROJECT)
 
 
-@pytest.mark.parametrize("tag", ["0.1.0", "v0.1.1", "", "release-v0.1.0"])
+@pytest.mark.parametrize("tag", ["0.1.1", "v0.1.0", "", "release-v0.1.1"])
 def test_nonmatching_release_tags_are_rejected(tag: str) -> None:
     release = load_release_module()
 
-    with pytest.raises(ValueError, match=r"expected v0\.1\.0"):
+    with pytest.raises(ValueError, match=r"expected v0\.1\.1"):
         release.validate_release_tag(tag, PYPROJECT)
 
 
 def test_cli_accepts_matching_release_tag() -> None:
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT), "v0.1.0"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0
-    assert result.stdout.strip() == "release tag accepted: v0.1.0"
-    assert result.stderr == ""
-
-
-def test_cli_reports_expected_and_received_tags_on_mismatch() -> None:
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "v0.1.1"],
         cwd=ROOT,
@@ -64,9 +50,23 @@ def test_cli_reports_expected_and_received_tags_on_mismatch() -> None:
         check=False,
     )
 
+    assert result.returncode == 0
+    assert result.stdout.strip() == "release tag accepted: v0.1.1"
+    assert result.stderr == ""
+
+
+def test_cli_reports_expected_and_received_tags_on_mismatch() -> None:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "v0.1.0"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
     assert result.returncode != 0
     assert result.stdout == ""
-    assert result.stderr.strip() == "release tag mismatch: expected v0.1.0, received v0.1.1"
+    assert result.stderr.strip() == "release tag mismatch: expected v0.1.1, received v0.1.0"
 
 
 def test_supported_python_matrix_lints_release_scripts() -> None:
