@@ -6,6 +6,7 @@ import sys
 import anyio
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 server = MCPServer("mcp-rig-fixture")
 
@@ -22,7 +23,7 @@ def echo(text: str) -> str:
     return text
 
 
-@server.tool()
+@server.tool(annotations=ToolAnnotations(read_only_hint=True))
 def get_user(user_id: int) -> dict:
     """Return a deterministic user or a readable tool error."""
     if user_id != 1:

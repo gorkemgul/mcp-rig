@@ -41,6 +41,7 @@ class ToolInfo:
     name: str
     description: str
     input_schema: dict[str, Any]
+    annotations: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,9 @@ class Probe:
                     name=tool.name,
                     description=tool.description or "",
                     input_schema=dict(tool.input_schema),
+                    annotations=(
+                        tool.annotations.model_dump(by_alias=True, exclude_none=True) if tool.annotations else {}
+                    ),
                 )
                 for tool in listed.tools
             )
