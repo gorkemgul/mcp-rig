@@ -28,6 +28,9 @@ async def test_connect_lists_normalized_fixture_tools(fixture_spec):
     undocumented = next(tool for tool in tools if tool.name == "undocumented")
     assert undocumented.description == ""
     assert undocumented.input_schema["type"] == "object"
+    assert undocumented.annotations == {}
+    get_user = next(tool for tool in tools if tool.name == "get_user")
+    assert get_user.annotations == {"readOnlyHint": True}
 
 
 @pytest.mark.anyio

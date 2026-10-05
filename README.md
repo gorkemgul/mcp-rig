@@ -53,6 +53,23 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
+The `Makefile` runs the same checks as CI through `.venv/bin`, so they work
+without an activated environment:
+
+```bash
+make dev       # create .venv and install the project with dev tools
+make lint      # ruff
+make test      # pytest
+make examples  # run the fixture suite and the feature tour
+make check     # mcp-rig check against the fixture server
+```
+
+The example suites start their servers with `python`. Without the environment
+activated, that may resolve to an interpreter that lacks a compatible `mcp`
+package. In that case the server exits during startup and MCP Rig reports
+`suite setup: MCPError: Connection closed`. Add `--server-logs` to see the
+server's error output.
+
 ## Run a suite
 
 ```bash
@@ -211,7 +228,9 @@ connections remain infrastructure errors.
 JSON checks prefer MCP structured content and otherwise parse response text as
 JSON. Each case may set a positive, finite `timeout_s`; the default is 30
 seconds. A timeout is an infrastructure error, aborts further calls on the
-shared session, and marks later cases as skipped.
+shared session, and marks later cases as skipped. Set `after_timeout: continue`
+at the top of a suite to keep running later cases on the same session after a
+timeout. A closed connection still stops the suite.
 
 Terminal and JUnit reports distinguish four states:
 
@@ -228,6 +247,59 @@ error; code `2` takes precedence when a batch contains both kinds of failure.
 Add `--server-logs` to expose every suite server's stderr while diagnosing
 startup or tool behavior.
 
+### Check server state, set up, and retry
+
+A response can look correct while the server state is wrong. `verify` steps run
+further tool calls on the same session after a case's call completes, and their
+failures are reported with the case, prefixed `verify[N] <tool>:`. Suite-level
+`setup` steps run once before the first case and `teardown` steps run once
+after the last case. Steps are not counted as test cases. A failing setup step
+skips every case, and a failing setup or teardown step is reported as a suite
+error.
+
+```yaml
+server: python server.py
+setup:
+  - call: reset_records
+teardown:
+  - call: reset_records
+
+tests:
+  - name: idempotent create applies once
+    call: create_record
+    args: {name: invoice, idempotency_key: invoice-001}
+    retry:
+      attempts: 1
+    expect:
+      json_path: {name: invoice}
+    verify:
+      - call: count_records
+        args: {name: invoice}
+        expect:
+          json_path: {records: 1}
+```
+
+Steps accept `call`, `args`, `expect`, and `timeout_s`, and use the same
+expectations as cases, except `snapshot`.
+
+MCP Rig does not retry calls by default. `retry.attempts` lets a case repeat its
+identical call after an infrastructure error. Assertion failures and tool
+errors are never retried. After a timeout the retry reuses the session; after a
+closed connection MCP Rig first starts a fresh server process, so only state
+kept outside that process survives. Terminal output lists each failed attempt,
+and JUnit records `mcp-rig.attempts` and `mcp-rig.retried.N` testcase
+properties.
+
+Retries matter for tools with side effects. A tool can commit and then lose its
+response, and the retry's JSON can pass `schema`, `json_path`, and `snapshot`
+checks while the operation has happened twice. Check the resulting state with
+`verify`, and set the expected count from the tool's contract: an unprotected
+tool should produce two records and a tool with an idempotency key should
+produce one. The key is a tool argument, not the JSON-RPC request ID, which
+changes with every attempt. The
+[state and retries example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/feature-tour/state-and-retries.yaml)
+runs this scenario against a fixture that loses a response on purpose.
+
 ## Check a server without a suite
 
 Run protocol checks and inspect tool-definition quality without writing YAML:
@@ -241,6 +313,12 @@ an unknown tool, and remains responsive after the negative call. It also warns
 about missing or short descriptions, invalid input schemas, undocumented
 parameters, and tool descriptions that are likely to be confused with each
 other.
+
+The `retry-unsafe` warning flags tools that look side-effecting, such as
+`create_record`, `send_email`, or a tool annotated `readOnlyHint: false`, but
+declare neither `idempotentHint: true` nor an idempotency-key parameter such as
+`idempotency_key`. Clients retry calls whose responses are lost, so such a tool
+may apply its effect twice.
 
 Lint warnings are advisory by default. Use `--strict` to make them fail CI:
 

@@ -15,12 +15,14 @@ from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
 from mcp_rig.lint import LintWarning, lint_tools
 from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
+from mcp_rig.runner import CaseStatus, ErrorCategory
 from mcp_rig.selection import SelectionFilter, validate_tag
 from mcp_rig.snapshots import SNAPSHOT_SUFFIX
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
+SERVER_LOGS_HINT = "hint: the server may have exited; rerun with --server-logs to see its stderr"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,6 +143,8 @@ def _cmd_run(args: argparse.Namespace, color: bool) -> int:
             print(f"error: {line}", file=sys.stderr)
 
     print(_render_run(args.targets, result, color=color))
+    if not args.server_logs and _server_may_have_exited(result):
+        print(SERVER_LOGS_HINT, file=sys.stderr)
     if args.junit:
         try:
             write_batch_junit(args.junit, result)
@@ -155,6 +159,21 @@ def _cmd_run(args: argparse.Namespace, color: bool) -> int:
     if result.has_failures:
         return EXIT_FAILED
     return EXIT_OK
+
+
+def _server_may_have_exited(result: BatchResult) -> bool:
+    for item in result.suites:
+        if item.result is None:
+            continue
+        error = item.result.suite_error
+        if error is not None and error.category is ErrorCategory.SETUP:
+            return True
+        if any(
+            case.status is CaseStatus.ERROR and case.error.category is ErrorCategory.TRANSPORT
+            for case in item.result.results
+        ):
+            return True
+    return False
 
 
 def _render_run(targets: list[str], result: BatchResult, color: bool) -> str:
@@ -182,6 +201,8 @@ def _cmd_check(args: argparse.Namespace, color: bool) -> int:
         )
     except Exception as exc:  # noqa: BLE001 - CLI converts infrastructure errors to exit 2
         print(f"error: could not run server: {_describe(exc)}", file=sys.stderr)
+        if not args.server_logs:
+            print(SERVER_LOGS_HINT, file=sys.stderr)
         return EXIT_USAGE
 
     print(render_check(checks, warnings, color=color))
