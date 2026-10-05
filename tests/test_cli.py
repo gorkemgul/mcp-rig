@@ -1,4 +1,5 @@
 import shlex
+import sys
 import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -1004,3 +1005,45 @@ def test_check_handles_valid_boolean_property_schema(
     assert "3/3 checks passed, 1 lint warning" in captured.out
     assert "boolean_property [param-no-description]" in captured.out
     assert "error:" not in captured.err
+
+
+def write_crashing_server_suite(tmp_path):
+    crash = tmp_path / "crash.py"
+    crash.write_text("import sys\nprint('ImportError: incompatible mcp', file=sys.stderr)\nsys.exit(1)\n")
+    suite = tmp_path / "suite.yaml"
+    suite.write_text(
+        f"server: {shlex.join([sys.executable, str(crash)])}\ntests:\n  - {{name: a, call: add}}\n",
+        encoding="utf-8",
+    )
+    return suite
+
+
+def test_run_hints_at_server_logs_when_the_server_exits_during_startup(tmp_path, capfd):
+    code = main(["run", str(write_crashing_server_suite(tmp_path))])
+
+    captured = capfd.readouterr()
+    assert code == 2
+    assert "suite setup" in captured.out
+    assert cli_module.SERVER_LOGS_HINT in captured.err
+    assert "incompatible mcp" not in captured.err
+
+
+def test_run_omits_server_logs_hint_when_logs_are_visible(tmp_path, capfd):
+    code = main(["run", str(write_crashing_server_suite(tmp_path)), "--server-logs"])
+
+    captured = capfd.readouterr()
+    assert code == 2
+    assert "incompatible mcp" in captured.err
+    assert cli_module.SERVER_LOGS_HINT not in captured.err
+
+
+def test_run_omits_server_logs_hint_after_a_healthy_run(tmp_path, fixture_spec, capsys):
+    suite = write_suite(tmp_path, fixture_spec, PASSING)
+
+    assert main(["run", str(suite)]) == 0
+    assert cli_module.SERVER_LOGS_HINT not in capsys.readouterr().err
+
+
+def test_check_unstartable_server_hints_at_server_logs(capsys):
+    assert main(["check", "/definitely/missing/mcp-rig-server"]) == 2
+    assert cli_module.SERVER_LOGS_HINT in capsys.readouterr().err

@@ -53,6 +53,23 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
+The `Makefile` runs the same checks as CI through `.venv/bin`, so they work
+without an activated environment:
+
+```bash
+make dev       # create .venv and install the project with dev tools
+make lint      # ruff
+make test      # pytest
+make examples  # run the fixture suite and the feature tour
+make check     # mcp-rig check against the fixture server
+```
+
+The example suites start their servers with `python`. Without the environment
+activated, that may resolve to an interpreter that lacks a compatible `mcp`
+package. In that case the server exits during startup and MCP Rig reports
+`suite setup: MCPError: Connection closed`. Add `--server-logs` to see the
+server's error output.
+
 ## Run a suite
 
 ```bash
