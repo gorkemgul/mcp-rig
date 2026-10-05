@@ -11,3 +11,4 @@ graphify-out/
 docs/*
 !docs/assets/
 AGENTS.md
+.mcp-rig-ledger.json*

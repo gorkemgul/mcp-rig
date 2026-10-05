@@ -225,6 +225,24 @@ async def test_live_timeout_marks_active_case_error_and_later_case_skipped(fixtu
 
 
 @pytest.mark.anyio
+async def test_live_session_keeps_serving_cases_after_a_timeout_when_configured(fixture_spec, tmp_path):
+    suite = Suite(
+        path=tmp_path / "suite.yaml",
+        server=fixture_spec,
+        cases=[
+            Case("too slow", "slow", {"seconds": 5}, timeout_s=0.05),
+            Case("still runs", "echo", {"text": "after"}, {"contains": "after"}),
+        ],
+        after_timeout="continue",
+    )
+
+    result = await run_suite(suite)
+
+    assert [item.status for item in result.results] == [CaseStatus.ERROR, CaseStatus.PASSED]
+    assert result.results[0].error.category is ErrorCategory.TIMEOUT
+
+
+@pytest.mark.anyio
 async def test_base_exception_from_probe_propagates(monkeypatch, tmp_path):
     class InterruptingProbe:
         async def call(self, name, args, timeout_s):
