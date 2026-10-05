@@ -411,3 +411,23 @@ def test_write_junit_compatibility_wrapper_keeps_existing_document(tmp_path):
     assert [suite.attrib["name"] for suite in root.findall("testsuite")] == [
         "suite.yaml"
     ]
+
+
+def test_write_junit_records_retry_attempts_as_testcase_properties(tmp_path):
+    retried = InfrastructureError(ErrorCategory.TIMEOUT, "MCPError", "timed out")
+    result = SuiteResult(
+        [
+            CaseResult(name="retried", status=CaseStatus.PASSED, elapsed_ms=1.0, retried_errors=(retried,)),
+            CaseResult(name="plain", status=CaseStatus.PASSED, elapsed_ms=1.0),
+        ]
+    )
+    path = tmp_path / "report.xml"
+
+    write_junit(path, "suite", result)
+
+    retried_case, plain_case = ET.parse(path).getroot().iter("testcase")
+    assert {item.get("name"): item.get("value") for item in retried_case.iter("property")} == {
+        "mcp-rig.attempts": "2",
+        "mcp-rig.retried.1": "timeout: MCPError: timed out",
+    }
+    assert plain_case.find("properties") is None

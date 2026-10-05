@@ -400,3 +400,23 @@ def test_render_check_color_wraps_only_status_symbols():
     assert "      got success" in lines
     assert "Lint" in lines
     assert "1/2 checks passed, 1 lint warning" in lines
+
+
+def test_render_suite_lists_retried_attempts_under_the_final_result():
+    retried = InfrastructureError(ErrorCategory.TRANSPORT, "MCPError", "Connection closed")
+    suite_result = SuiteResult(
+        [
+            CaseResult(
+                name="creates",
+                status=CaseStatus.PASSED,
+                elapsed_ms=4.0,
+                outcome=CallOutcome(False, "", None, 1.0),
+                retried_errors=(retried,),
+            )
+        ]
+    )
+
+    assert render_suite("suite.yaml", suite_result).splitlines()[2:4] == [
+        "✓ creates (4 ms)",
+        "    retried after attempt 1: transport: MCPError: Connection closed",
+    ]

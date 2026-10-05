@@ -211,7 +211,9 @@ connections remain infrastructure errors.
 JSON checks prefer MCP structured content and otherwise parse response text as
 JSON. Each case may set a positive, finite `timeout_s`; the default is 30
 seconds. A timeout is an infrastructure error, aborts further calls on the
-shared session, and marks later cases as skipped.
+shared session, and marks later cases as skipped. Set `after_timeout: continue`
+at the top of a suite to keep running later cases on the same session after a
+timeout. A closed connection still stops the suite.
 
 Terminal and JUnit reports distinguish four states:
 
@@ -228,34 +230,58 @@ error; code `2` takes precedence when a batch contains both kinds of failure.
 Add `--server-logs` to expose every suite server's stderr while diagnosing
 startup or tool behavior.
 
-### Retries of side-effecting tools
+### Check server state, set up, and retry
 
-MCP Rig never retries a call. A timeout or closed connection makes that case an
-error and skips the rest of the suite, so a YAML suite cannot express "the
-response was lost, now retry." This matters for tools with side effects: a tool
-can commit and then lose its response, and a retry's JSON can pass `schema`,
-`json_path`, and `snapshot` checks while the operation has happened twice.
+A response can look correct while the server state is wrong. `verify` steps run
+further tool calls on the same session after a case's call completes, and their
+failures are reported with the case, prefixed `verify[N] <tool>:`. Suite-level
+`setup` steps run once before the first case and `teardown` steps run once
+after the last case. Steps are not counted as test cases. A failing setup step
+skips every case, and a failing setup or teardown step is reported as a suite
+error.
 
-Cover this scenario in a Python integration test that checks server state
-directly. `tests/test_lost_response_retry.py` is a worked example built on a
-fixture whose state lives in a file:
+```yaml
+server: python server.py
+setup:
+  - call: reset_records
+teardown:
+  - call: reset_records
 
-```python
-arm_lost_response(ledger, "disconnect")  # the next call commits, then the server exits
-with pytest.raises(BaseException):
-    async with connect(spec) as probe:
-        await probe.call("create_record_idempotent", args)
-async with connect(spec) as probe:       # an explicit retry of the same logical call
-    retry = await probe.call("create_record_idempotent", args)
-
-assert check({"schema": record_schema}, retry) == []  # the response looks fine
-assert len(read_ledger(ledger)["records"]) == 1        # the side effect happened once
+tests:
+  - name: idempotent create applies once
+    call: create_record
+    args: {name: invoice, idempotency_key: invoice-001}
+    retry:
+      attempts: 1
+    expect:
+      json_path: {name: invoice}
+    verify:
+      - call: count_records
+        args: {name: invoice}
+        expect:
+          json_path: {records: 1}
 ```
 
-Set the expected state from the tool's contract. An unprotected tool should
-produce two records. A tool that accepts an `idempotency_key` argument should
-produce one. That key belongs to the tool's arguments and is not the JSON-RPC
-request ID, which changes with every attempt.
+Steps accept `call`, `args`, `expect`, and `timeout_s`, and use the same
+expectations as cases, except `snapshot`.
+
+MCP Rig does not retry calls by default. `retry.attempts` lets a case repeat its
+identical call after an infrastructure error. Assertion failures and tool
+errors are never retried. After a timeout the retry reuses the session; after a
+closed connection MCP Rig first starts a fresh server process, so only state
+kept outside that process survives. Terminal output lists each failed attempt,
+and JUnit records `mcp-rig.attempts` and `mcp-rig.retried.N` testcase
+properties.
+
+Retries matter for tools with side effects. A tool can commit and then lose its
+response, and the retry's JSON can pass `schema`, `json_path`, and `snapshot`
+checks while the operation has happened twice. Check the resulting state with
+`verify`, and set the expected count from the tool's contract: an unprotected
+tool should produce two records and a tool with an idempotency key should
+produce one. The key is a tool argument, not the JSON-RPC request ID, which
+changes with every attempt. The
+[state and retries example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/feature-tour/state-and-retries.yaml)
+runs this scenario against a fixture that loses a response on purpose.
 
 ## Check a server without a suite
 

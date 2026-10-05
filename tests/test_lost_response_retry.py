@@ -125,7 +125,7 @@ async def test_idempotency_is_keyed_by_tool_argument_not_jsonrpc_request_id(ledg
     ("mode", "category"),
     [("hang", ErrorCategory.TIMEOUT), ("disconnect", ErrorCategory.TRANSPORT)],
 )
-async def test_yaml_suite_does_not_retry_and_skips_the_retry_case(ledger_spec, ledger, tmp_path, mode, category):
+async def test_yaml_suite_without_retry_skips_the_retry_case(ledger_spec, ledger, tmp_path, mode, category):
     suite_path = tmp_path / "retry.yaml"
     suite_path.write_text(
         f"""
@@ -154,3 +154,56 @@ tests:
     state = read_ledger(ledger)
     assert len(state["invocations"]) == 1
     assert state["records"] == [{"id": 1, "name": "invoice"}]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("mode", "tool", "extra_args", "records"),
+    [
+        ("disconnect", "create_record", "", 2),
+        ("hang", "create_record", "", 2),
+        ("disconnect", "create_record_idempotent", ", idempotency_key: inv-1", 1),
+        ("hang", "create_record_idempotent", ", idempotency_key: inv-1", 1),
+    ],
+)
+async def test_yaml_retry_and_verify_expose_the_side_effect_count(tmp_path, mode, tool, extra_args, records):
+    ledger = tmp_path / "ledger.json"
+    suite_path = tmp_path / "retry.yaml"
+    suite_path.write_text(
+        f"""
+server:
+  command: {json.dumps(sys.executable)}
+  args: [{json.dumps(str(LEDGER_SERVER))}]
+  env: {{MCP_RIG_LEDGER: {json.dumps(str(ledger))}}}
+setup:
+  - call: reset_records
+tests:
+  - name: arm
+    call: arm_lost_response
+    args: {{mode: {mode}}}
+  - name: create invoice
+    call: {tool}
+    args: {{name: invoice{extra_args}}}
+    timeout_s: {LOST_RESPONSE_TIMEOUT_S}
+    retry: {{attempts: 1}}
+    expect: {{json_path: {{name: invoice}}}}
+    verify:
+      - call: count_records
+        args: {{name: invoice}}
+        expect: {{json_path: {{records: 1, invocations: 2}}}}
+""",
+        encoding="utf-8",
+    )
+
+    result = await run_suite(load_suite(suite_path))
+
+    item = result.results[1]
+    assert item.attempts == 2
+    assert item.retried_errors[0].category is (ErrorCategory.TIMEOUT if mode == "hang" else ErrorCategory.TRANSPORT)
+    assert check(RECORD_EXPECTATIONS, item.outcome) == []
+    if records == 1:
+        assert item.status is CaseStatus.PASSED
+    else:
+        assert item.status is CaseStatus.FAILED
+        assert item.failures == ["verify[0] count_records: json_path records: expected 1, got 2"]
+    assert len(read_ledger(ledger)["records"]) == records

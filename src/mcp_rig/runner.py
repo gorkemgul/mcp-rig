@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import time
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 from mcp.shared.exceptions import MCPError
 from mcp_types import REQUEST_TIMEOUT
 
 from mcp_rig.assertions import check
-from mcp_rig.client import CallOutcome, Probe, connect
+from mcp_rig.client import CallOutcome, Probe, ServerSpec, connect
 from mcp_rig.snapshots import SnapshotSession
-from mcp_rig.spec import Case, Suite
+from mcp_rig.spec import Case, Step, Suite
 
 
 class CaseStatus(StrEnum):
@@ -45,6 +47,11 @@ class CaseResult:
     outcome: CallOutcome | None = None
     error: InfrastructureError | None = None
     skip_reason: str | None = None
+    retried_errors: tuple[InfrastructureError, ...] = ()
+
+    @property
+    def attempts(self) -> int:
+        return len(self.retried_errors) + 1
 
 
 @dataclass(frozen=True)
@@ -73,63 +80,162 @@ class SuiteResult:
         return bool(self.results) and self.passed == len(self.results) and self.suite_error is None
 
 
+class _Session:
+    """The suite's server connection, replaceable after the transport fails."""
+
+    def __init__(self, spec: ServerSpec, show_server_logs: bool):
+        self._spec = spec
+        self._show_server_logs = show_server_logs
+        self._stack: AsyncExitStack | None = None
+        self._probe: Probe | None = None
+        self.broken = False
+
+    async def open(self) -> None:
+        stack = AsyncExitStack()
+        self._probe = await stack.enter_async_context(connect(self._spec, show_server_logs=self._show_server_logs))
+        self._stack = stack
+        self.broken = False
+
+    async def close(self, exc: BaseException | None = None) -> None:
+        stack, self._stack, self._probe = self._stack, None, None
+        if stack is not None:
+            await stack.__aexit__(type(exc) if exc else None, exc, exc.__traceback__ if exc else None)
+
+    async def reconnect(self) -> None:
+        try:
+            await self.close()
+        except Exception:  # noqa: BLE001 - the failed session was already reported
+            pass
+        await self.open()
+
+    async def call(self, name: str, args: dict[str, Any], timeout_s: float) -> CallOutcome:
+        if self.broken:
+            await self.reconnect()
+        assert self._probe is not None
+        try:
+            return await self._probe.call(name, args, timeout_s=timeout_s)
+        except Exception as exc:
+            if not _is_timeout_error(exc):
+                self.broken = True
+            raise
+
+
 async def run_suite(
     suite: Suite,
     show_server_logs: bool = False,
     snapshots: SnapshotSession | None = None,
 ) -> SuiteResult:
-    results: list[CaseResult] = []
-    connected = False
-    body_failed = False
+    session = _Session(suite.server, show_server_logs)
     try:
-        async with connect(suite.server, show_server_logs=show_server_logs) as probe:
-            connected = True
-            try:
-                for index, case in enumerate(suite.cases):
-                    result = await _run_case(probe, case, snapshots=snapshots)
-                    results.append(result)
-                    if result.status is CaseStatus.ERROR:
-                        reason = f"not run after infrastructure error in '{case.name}'"
-                        results.extend(_skipped_cases(suite.cases[index + 1 :], reason))
-                        break
-            except BaseException:
-                body_failed = True
-                raise
+        await session.open()
     except Exception as exc:
-        if body_failed:
-            raise
-        category = ErrorCategory.TEARDOWN if connected else ErrorCategory.SETUP
-        suite_error = _normalize_error(exc, category)
-        if not connected:
-            results = _skipped_cases(suite.cases, "suite could not start")
-        return SuiteResult(results, suite_error=suite_error)
-    return SuiteResult(results)
+        return SuiteResult(
+            _skipped_cases(suite.cases, "suite could not start"),
+            suite_error=_normalize_error(exc, ErrorCategory.SETUP),
+        )
+
+    results: list[CaseResult] = []
+    suite_error: InfrastructureError | None = None
+    try:
+        suite_error = await _run_steps(session, suite.setup, ErrorCategory.SETUP)
+        if suite_error is not None:
+            results = _skipped_cases(suite.cases, "suite setup failed")
+        else:
+            for index, case in enumerate(suite.cases):
+                result = await _run_case(session, case, snapshots=snapshots)
+                results.append(result)
+                if result.status is CaseStatus.ERROR and not _continues_after(suite, result):
+                    reason = f"not run after infrastructure error in '{case.name}'"
+                    results.extend(_skipped_cases(suite.cases[index + 1 :], reason))
+                    break
+            suite_error = await _run_steps(session, suite.teardown, ErrorCategory.TEARDOWN)
+    except BaseException as exc:
+        await session.close(exc)
+        raise
+    try:
+        await session.close()
+    except Exception as exc:
+        if suite_error is None:
+            suite_error = _normalize_error(exc, ErrorCategory.TEARDOWN)
+    return SuiteResult(results, suite_error=suite_error)
+
+
+def _continues_after(suite: Suite, result: CaseResult) -> bool:
+    assert result.error is not None
+    return suite.after_timeout == "continue" and result.error.category is ErrorCategory.TIMEOUT
+
+
+async def _run_steps(
+    session: _Session,
+    steps: tuple[Step, ...],
+    category: ErrorCategory,
+) -> InfrastructureError | None:
+    for index, step in enumerate(steps):
+        where = f"{category}[{index}] {step.call}"
+        try:
+            outcome = await session.call(step.call, step.args, step.timeout_s)
+        except Exception as exc:
+            error = _normalize_error(exc, category)
+            return InfrastructureError(category, error.exception_type, f"{where}: {error.message}")
+        failures = check(step.expect, outcome)
+        if failures:
+            return InfrastructureError(category, "StepFailed", f"{where}: {'; '.join(failures)}")
+    return None
 
 
 async def _run_case(
-    probe: Probe,
+    session: _Session,
     case: Case,
     snapshots: SnapshotSession | None = None,
 ) -> CaseResult:
     started = time.perf_counter()
-    try:
-        outcome = await probe.call(case.call, case.args, timeout_s=case.timeout_s)
-    except Exception as exc:
-        return CaseResult(
-            name=case.name,
-            status=CaseStatus.ERROR,
-            elapsed_ms=(time.perf_counter() - started) * 1000,
-            error=_normalize_error(exc, ErrorCategory.TRANSPORT),
-        )
+    retried: list[InfrastructureError] = []
+    while True:
+        try:
+            outcome = await session.call(case.call, case.args, case.timeout_s)
+            break
+        except Exception as exc:
+            error = _normalize_error(exc, ErrorCategory.TRANSPORT)
+            if len(retried) >= case.retry_attempts:
+                return _error_result(case, started, error, retried)
+            retried.append(error)
+
     failures = check(case.expect, outcome)
     if snapshots is not None and case.expect.get("snapshot") is True:
         failures.extend(snapshots.evaluate(case.name, outcome))
+    for index, step in enumerate(case.verify):
+        where = f"verify[{index}] {step.call}"
+        try:
+            step_outcome = await session.call(step.call, step.args, step.timeout_s)
+        except Exception as exc:
+            error = _normalize_error(exc, ErrorCategory.TRANSPORT)
+            located = InfrastructureError(error.category, error.exception_type, f"{where}: {error.message}")
+            return _error_result(case, started, located, retried, outcome)
+        failures.extend(f"{where}: {failure}" for failure in check(step.expect, step_outcome))
     return CaseResult(
         name=case.name,
         status=CaseStatus.FAILED if failures else CaseStatus.PASSED,
         elapsed_ms=(time.perf_counter() - started) * 1000,
         failures=failures,
         outcome=outcome,
+        retried_errors=tuple(retried),
+    )
+
+
+def _error_result(
+    case: Case,
+    started: float,
+    error: InfrastructureError,
+    retried: list[InfrastructureError],
+    outcome: CallOutcome | None = None,
+) -> CaseResult:
+    return CaseResult(
+        name=case.name,
+        status=CaseStatus.ERROR,
+        elapsed_ms=(time.perf_counter() - started) * 1000,
+        outcome=outcome,
+        error=error,
+        retried_errors=tuple(retried),
     )
 
 
@@ -145,6 +251,10 @@ def _exception_leaves(exc: BaseException) -> list[BaseException]:
     if isinstance(exc, BaseExceptionGroup):
         return [leaf for nested in exc.exceptions for leaf in _exception_leaves(nested)]
     return [exc]
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    return any(_is_timeout(leaf) for leaf in _exception_leaves(exc))
 
 
 def _is_timeout(exc: BaseException) -> bool:

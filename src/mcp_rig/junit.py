@@ -67,6 +67,8 @@ def _append_suite(root: ET.Element, suite_name: str, result: SuiteResult) -> ET.
             name=item.name,
             time=_seconds(item.elapsed_ms),
         )
+        if item.retried_errors:
+            _add_retry_properties(case, item.retried_errors)
         if item.status is CaseStatus.FAILED:
             assert item.failures
             failure = ET.SubElement(case, "failure", message=item.failures[0])
@@ -154,3 +156,15 @@ def _add_error(case: ET.Element, error: InfrastructureError) -> None:
 
 def _seconds(milliseconds: float) -> str:
     return f"{milliseconds / 1000:.3f}"
+
+
+def _add_retry_properties(case: ET.Element, retried: tuple[InfrastructureError, ...]) -> None:
+    properties = ET.SubElement(case, "properties")
+    ET.SubElement(properties, "property", name="mcp-rig.attempts", value=str(len(retried) + 1))
+    for attempt, error in enumerate(retried, start=1):
+        ET.SubElement(
+            properties,
+            "property",
+            name=f"mcp-rig.retried.{attempt}",
+            value=f"{error.category}: {error.exception_type}: {error.message}",
+        )

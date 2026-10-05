@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -395,3 +396,73 @@ def test_rejects_invalid_suites(tmp_path, body, message):
 def test_missing_file_is_a_spec_error(tmp_path):
     with pytest.raises(SpecError, match="could not read"):
         load_suite(tmp_path / "missing.yaml")
+
+
+def test_loads_verify_retry_setup_teardown_and_after_timeout(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+after_timeout: continue
+setup:
+  - call: reset
+teardown:
+  - call: reset
+    args: {hard: true}
+    timeout_s: 2
+tests:
+  - name: creates
+    call: create
+    args: {name: a}
+    retry: {attempts: 2}
+    verify:
+      - call: count
+        args: {name: a}
+        expect: {json_path: {records: 1}}
+""",
+        )
+    )
+
+    case = suite.cases[0]
+    assert suite.after_timeout == "continue"
+    assert [step.call for step in suite.setup] == ["reset"]
+    assert suite.teardown[0].args == {"hard": True}
+    assert suite.teardown[0].timeout_s == 2.0
+    assert case.retry_attempts == 2
+    assert case.verify[0].call == "count"
+    assert case.verify[0].expect == {"json_path": {"records": 1}}
+
+
+def test_supporting_steps_and_retry_default_to_off(tmp_path):
+    suite = load_suite(write_suite(tmp_path, "server: python server.py\ntests:\n  - {name: a, call: add}\n"))
+
+    assert (suite.setup, suite.teardown, suite.after_timeout) == ((), (), "stop")
+    assert (suite.cases[0].verify, suite.cases[0].retry_attempts) == ((), 0)
+
+
+CASE_PREFIX = "server: python server.py\ntests:\n  - name: a\n    call: add\n"
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (CASE_PREFIX + "    retry: 1\n", "'retry' must be a mapping with only 'attempts'"),
+        (CASE_PREFIX + "    retry: {attempts: 1, delay: 2}\n", "'retry' must be a mapping with only 'attempts'"),
+        (CASE_PREFIX + "    retry: {attempts: 0}\n", "'retry.attempts' must be a positive integer"),
+        (CASE_PREFIX + "    retry: {attempts: true}\n", "'retry.attempts' must be a positive integer"),
+        (CASE_PREFIX + "    verify: []\n", "(a): verify must be a non-empty list"),
+        (CASE_PREFIX + "    verify: [count]\n", "(a): verify[0] must be a mapping"),
+        (CASE_PREFIX + "    verify: [{args: {}}]\n", "verify[0]: 'call' must be a non-empty string"),
+        (CASE_PREFIX + "    verify: [{call: c, name: x}]\n", "verify[0]: unknown keys: name"),
+        (CASE_PREFIX + "    verify: [{call: c, expect: {snapshot: true}}]\n", "only supported on test cases"),
+        (CASE_PREFIX + "    verify: [{call: c, expect: {nope: 1}}]\n", "verify[0]: unknown expect keys: nope"),
+        (CASE_PREFIX + "    verify: [{call: c, timeout_s: 0}]\n", "verify[0]: 'timeout_s' must be a positive number"),
+        ("setup: {call: reset}\n" + CASE_PREFIX, "setup must be a non-empty list"),
+        ("teardown: [{call: ''}]\n" + CASE_PREFIX, "teardown[0]: 'call' must be a non-empty string"),
+        ("after_timeout: retry\n" + CASE_PREFIX, "'after_timeout' must be one of: stop, continue"),
+    ],
+)
+def test_rejects_invalid_supporting_steps_and_retry(tmp_path, body, message):
+    with pytest.raises(SpecError, match=re.escape(message)):
+        load_suite(write_suite(tmp_path, body))
