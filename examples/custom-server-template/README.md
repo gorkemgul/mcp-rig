@@ -1,7 +1,13 @@
 # Test your own MCP server
 
-Copy this suite into your project and replace the server command, tool names,
-arguments, and expectations:
+The quickest start is to generate a suite from your server's tools:
+
+```bash
+mcp-rig init "python -m my_mcp_server" --output tests/mcp/my-server.yaml
+```
+
+Or copy this suite into your project and replace the server command, tool
+names, arguments, and expectations:
 
 ```yaml
 server:

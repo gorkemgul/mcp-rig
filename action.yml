@@ -1,0 +1,87 @@
+name: MCP Rig
+description: Run deterministic MCP Rig test suites and protocol checks against MCP servers.
+author: gorkemgul
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  suites:
+    description: Suite files or directories to run, separated by spaces or newlines.
+    required: true
+  version:
+    description: MCP Rig version to install from PyPI. Defaults to the version of this action.
+    required: false
+    default: ""
+  python:
+    description: >-
+      Interpreter used to create MCP Rig's isolated environment (Python 3.11 or newer).
+      Your server keeps using the Python already on PATH.
+    required: false
+    default: python3
+  junit:
+    description: Path for a JUnit XML report.
+    required: false
+    default: ""
+  args:
+    description: Extra arguments for `mcp-rig run`, for example `--tag smoke --exclude-tag slow`.
+    required: false
+    default: ""
+  check:
+    description: Server command for `mcp-rig check`, run before the suites when set.
+    required: false
+    default: ""
+  check-args:
+    description: Extra arguments for `mcp-rig check`, for example `--strict`.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install MCP Rig
+      id: install
+      shell: bash
+      env:
+        MCP_RIG_PYTHON: ${{ inputs.python }}
+        MCP_RIG_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        venv="$RUNNER_TEMP/mcp-rig-action"
+        "$MCP_RIG_PYTHON" -m venv "$venv"
+        if [ -n "$MCP_RIG_VERSION" ]; then
+          requirement="mcp-rig==$MCP_RIG_VERSION"
+        else
+          requirement="$GITHUB_ACTION_PATH"
+        fi
+        "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "$requirement"
+        echo "bin=$venv/bin/mcp-rig" >> "$GITHUB_OUTPUT"
+
+    - name: Check server
+      if: inputs.check != ''
+      shell: bash
+      env:
+        MCP_RIG: ${{ steps.install.outputs.bin }}
+        MCP_RIG_CHECK: ${{ inputs.check }}
+        MCP_RIG_CHECK_ARGS: ${{ inputs.check-args }}
+      run: |
+        set -euo pipefail
+        read -r -a extra <<< "$MCP_RIG_CHECK_ARGS"
+        "$MCP_RIG" check "$MCP_RIG_CHECK" ${extra[@]+"${extra[@]}"}
+
+    - name: Run suites
+      shell: bash
+      env:
+        MCP_RIG: ${{ steps.install.outputs.bin }}
+        MCP_RIG_SUITES: ${{ inputs.suites }}
+        MCP_RIG_JUNIT: ${{ inputs.junit }}
+        MCP_RIG_ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        read -r -d '' -a suites <<< "$MCP_RIG_SUITES" || true
+        read -r -a extra <<< "$MCP_RIG_ARGS"
+        command=("$MCP_RIG" run "${suites[@]}")
+        if [ -n "$MCP_RIG_JUNIT" ]; then
+          command+=(--junit "$MCP_RIG_JUNIT")
+        fi
+        "${command[@]}" ${extra[@]+"${extra[@]}"}

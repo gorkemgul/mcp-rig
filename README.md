@@ -12,8 +12,51 @@
 
 Deterministic, CI-friendly testing for Model Context Protocol servers.
 
-MCP Rig currently launches local MCP servers over stdio and runs declarative
-tool suites in YAML.
+Write the calls your MCP server must handle as a YAML suite, then run that
+suite on every commit. MCP Rig starts the server, calls its tools, checks the
+results, and reports in a format CI understands.
+
+## Why MCP Rig?
+
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the
+official tool for trying a server by hand: you connect, click a tool, and read
+the response. MCP Rig is for what comes next, making sure the server keeps
+behaving that way:
+
+- **Repeatable suites.** Cases live in YAML next to your code and run the same
+  way locally and in CI.
+- **Focused checks.** Expected errors, text, regular expressions, JSON paths,
+  JSON Schema, latency limits, and full-response snapshots.
+- **State, not just responses.** `verify` steps check what a call actually
+  changed. Opt-in retries show whether a tool applies its effect twice when a
+  response is lost.
+- **CI-ready output.** JUnit XML, clear exit codes, tag and name filters, and a
+  GitHub Action.
+- **Server checks without a suite.** `mcp-rig check` probes protocol behavior
+  and flags weak tool definitions, including side-effecting tools that are
+  unsafe to retry.
+
+MCP Rig currently launches local MCP servers over stdio and tests their tools.
+
+## Quick start
+
+```bash
+pipx install mcp-rig
+mcp-rig check "python server.py"
+mcp-rig init "python server.py" --output tests/mcp/server.yaml
+mcp-rig run tests/mcp/server.yaml
+```
+
+`check` gives an immediate health report. `init` writes one starter case per
+tool. Replace its placeholder arguments with real ones, add expectations, and
+commit the suite. Then add one step to your workflow:
+
+```yaml
+- uses: gorkemgul/mcp-rig@v0.2.0
+  with:
+    suites: tests/mcp/
+    junit: mcp-rig-results.xml
+```
 
 ## CLI in action
 
@@ -69,6 +112,32 @@ activated, that may resolve to an interpreter that lacks a compatible `mcp`
 package. In that case the server exits during startup and MCP Rig reports
 `suite setup: MCPError: Connection closed`. Add `--server-logs` to see the
 server's error output.
+
+## Generate a starter suite
+
+Point `init` at your server to write one case per advertised tool:
+
+```bash
+mcp-rig init "python server.py" --output tests/mcp/server.yaml
+mcp-rig run tests/mcp/server.yaml
+```
+
+Each case calls its tool with typed placeholders for the required parameters.
+A placeholder is the schema's default, const, or first enum value when one
+exists, and otherwise an empty value of the right type. The tool description is
+kept as a comment, along with a `TODO` to replace the placeholders and add
+expectations. Generated cases only require a successful call, so the suite runs
+straight away.
+
+Tools that look side-effecting are tagged `side-effect`. A tool counts as
+side-effecting when its name starts with a verb such as `create` or `send`, or
+when it is annotated `readOnlyHint: false` or `destructiveHint: true`. Leave
+those cases out against a live server with `--exclude-tag side-effect`.
+
+When `--output` points to another directory, the suite records the server's
+working directory so relative paths in the command keep working. Without
+`--output`, the suite is printed to stdout. `init` does not overwrite an
+existing file unless `--force` is given.
 
 ## Run a suite
 
@@ -350,3 +419,19 @@ This release supports local stdio servers and tools only.
 
 Repository CI tests Python 3.11 through 3.13 and validates both wheel and
 source distributions without publishing them.
+
+## Run in GitHub Actions
+
+Add one step after your server's dependencies are installed:
+
+```yaml
+- uses: gorkemgul/mcp-rig@v0.2.0
+  with:
+    suites: tests/mcp/
+    junit: mcp-rig-results.xml
+```
+
+The action installs MCP Rig into an isolated environment and fails the job when
+a suite fails. See the
+[GitHub Actions example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/ci)
+for every input.

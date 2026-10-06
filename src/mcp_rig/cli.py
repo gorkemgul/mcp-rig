@@ -10,12 +10,13 @@ import anyio
 
 from mcp_rig.batch import BatchResult, run_batch
 from mcp_rig.checks import CheckResult, run_protocol_checks
-from mcp_rig.client import ServerSpec, connect
+from mcp_rig.client import ServerSpec, ToolInfo, connect
 from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
 from mcp_rig.lint import LintWarning, lint_tools
 from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
 from mcp_rig.runner import CaseStatus, ErrorCategory
+from mcp_rig.scaffold import scaffold_suite
 from mcp_rig.selection import SelectionFilter, validate_tag
 from mcp_rig.snapshots import SNAPSHOT_SUFFIX
 
@@ -103,10 +104,36 @@ def main(argv: list[str] | None = None) -> int:
         help="show the MCP server's stderr",
     )
 
+    init_parser = commands.add_parser(
+        "init",
+        help="generate a starter suite from a server's tools",
+    )
+    init_parser.add_argument(
+        "server",
+        help='server command, for example "python server.py"',
+    )
+    init_parser.add_argument(
+        "--output",
+        metavar="PATH",
+        help="write the suite to PATH instead of stdout",
+    )
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing --output file",
+    )
+    init_parser.add_argument(
+        "--server-logs",
+        action="store_true",
+        help="show the MCP server's stderr",
+    )
+
     args = parser.parse_args(argv)
     color = sys.stdout.isatty()
     if args.command == "run":
         return _cmd_run(args, color=color)
+    if args.command == "init":
+        return _cmd_init(args)
     return _cmd_check(args, color=color)
 
 
@@ -210,6 +237,41 @@ def _cmd_check(args: argparse.Namespace, color: bool) -> int:
         args.strict and bool(warnings)
     )
     return EXIT_FAILED if failed else EXIT_OK
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    output = Path(args.output) if args.output else None
+    if output is not None and output.exists() and not args.force:
+        print(f"error: {output} already exists; use --force to overwrite it", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        spec = ServerSpec.from_command_line(args.server)
+        tools = anyio.run(_list_tools, spec, args.server_logs)
+    except Exception as exc:  # noqa: BLE001 - CLI converts infrastructure errors to exit 2
+        print(f"error: could not run server: {_describe(exc)}", file=sys.stderr)
+        if not args.server_logs:
+            print(SERVER_LOGS_HINT, file=sys.stderr)
+        return EXIT_USAGE
+    if not tools:
+        print("error: the server lists no tools", file=sys.stderr)
+        return EXIT_FAILED
+    suite = scaffold_suite(spec, tools, suite_path=output)
+    if output is None:
+        sys.stdout.write(suite)
+        return EXIT_OK
+    try:
+        output.write_text(suite, encoding="utf-8")
+    except OSError as exc:
+        print(f"error: {output}: could not write suite: {_describe(exc)}", file=sys.stderr)
+        return EXIT_USAGE
+    print(f"wrote {len(tools)} {'case' if len(tools) == 1 else 'cases'} to {output}")
+    print(f"next: replace the placeholders, then run `mcp-rig run {output}`")
+    return EXIT_OK
+
+
+async def _list_tools(spec: ServerSpec, show_server_logs: bool) -> list[ToolInfo]:
+    async with connect(spec, show_server_logs=show_server_logs) as probe:
+        return await probe.list_tools()
 
 
 async def _check(
