@@ -350,3 +350,19 @@ This release supports local stdio servers and tools only.
 
 Repository CI tests Python 3.11 through 3.13 and validates both wheel and
 source distributions without publishing them.
+
+## Run in GitHub Actions
+
+Add one step after your server's dependencies are installed:
+
+```yaml
+- uses: gorkemgul/mcp-rig@v0.2.0
+  with:
+    suites: tests/mcp/
+    junit: mcp-rig-results.xml
+```
+
+The action installs MCP Rig into an isolated environment and fails the job when
+a suite fails. See the
+[GitHub Actions example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/ci)
+for every input.
