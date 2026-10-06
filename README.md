@@ -52,7 +52,7 @@ tool. Replace its placeholder arguments with real ones, add expectations, and
 commit the suite. Then add one step to your workflow:
 
 ```yaml
-- uses: gorkemgul/mcp-rig@v0.2.0
+- uses: gorkemgul/mcp-rig@v0.3.0
   with:
     suites: tests/mcp/
     junit: mcp-rig-results.xml
@@ -425,7 +425,7 @@ source distributions without publishing them.
 Add one step after your server's dependencies are installed:
 
 ```yaml
-- uses: gorkemgul/mcp-rig@v0.2.0
+- uses: gorkemgul/mcp-rig@v0.3.0
   with:
     suites: tests/mcp/
     junit: mcp-rig-results.xml

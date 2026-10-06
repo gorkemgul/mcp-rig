@@ -13,7 +13,7 @@ def test_package_identity_and_python_support_stay_stable() -> None:
     project = load_project_metadata()
 
     assert project["name"] == "mcp-rig"
-    assert project["version"] == "0.2.0"
+    assert project["version"] == "0.3.0"
     assert project["requires-python"] == ">=3.11"
 
 

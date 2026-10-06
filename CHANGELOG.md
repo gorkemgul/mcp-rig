@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- Remote servers over Streamable HTTP and SSE: `server.url`, optional
+  `headers` with `${ENV_VAR}` interpolation, and `transport: sse`. `check` and
+  `init` accept a URL and `--header`. Rejected connections report their HTTP
+  status, for example `HTTP 401 Unauthorized`.
+  ([#31](https://github.com/gorkemgul/mcp-rig/issues/31))
+- `mcp-rig check --ignore CODE[:TOOL]` silences lint warnings everywhere or
+  for one tool, so a heuristic false positive no longer blocks `--strict`.
+  ([#34](https://github.com/gorkemgul/mcp-rig/issues/34))
+- `retry.rerun_setup` runs the suite's setup steps again after a reconnect.
+  ([#35](https://github.com/gorkemgul/mcp-rig/issues/35))
+- A case can override the suite's `after_timeout` with its own value.
+  ([#36](https://github.com/gorkemgul/mcp-rig/issues/36))
+
+### Changed
+
+- `httpx2` is now a declared dependency.
+
 ## 0.2.0
 
 ### Added

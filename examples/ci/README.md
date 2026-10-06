@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install .
-      - uses: gorkemgul/mcp-rig@v0.2.0
+      - uses: gorkemgul/mcp-rig@v0.3.0
         with:
           check: python -m my_mcp_server
           check-args: --strict
