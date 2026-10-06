@@ -1,8 +1,9 @@
 """Serve the stdio fixture's tools over Streamable HTTP or SSE on an ephemeral port.
 
-Usage: http_server.py [streamable-http|sse]
+Usage: http_server.py [streamable-http|sse] [port]
 
-Prints ``PORT <number>`` once the socket accepts connections. When
+The port defaults to an ephemeral one. Prints ``PORT <number>`` once the socket
+accepts connections. When
 ``MCP_RIG_REQUIRED_TOKEN`` is set, every HTTP request must carry
 ``Authorization: Bearer <token>`` or it is rejected with 401.
 """
@@ -36,7 +37,7 @@ def build_app(transport: str):
 def main() -> None:
     transport = sys.argv[1] if len(sys.argv) > 1 else "streamable-http"
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
+    sock.bind(("127.0.0.1", int(sys.argv[2]) if len(sys.argv) > 2 else 0))
     sock.listen(128)
     print(f"PORT {sock.getsockname()[1]}", flush=True)
     config = uvicorn.Config(build_app(transport), log_level="warning")

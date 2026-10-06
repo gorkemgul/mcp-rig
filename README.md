@@ -1,4 +1,4 @@
-![MCP Rig — Test your MCP servers. YAML suites connect to an MCP server and produce verified test results.](docs/assets/banner.png)
+![MCP Rig — Test your MCP servers. YAML suites for local and remote MCP servers produce verified test results.](docs/assets/banner-v0.3.0.png)
 
 [![CI](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-b8a0ff)](https://github.com/gorkemgul/mcp-rig/blob/main/LICENSE)
@@ -61,17 +61,20 @@ commit the suite. Then add one step to your workflow:
 
 ## CLI in action
 
-Run a YAML suite, select tests by tag, and export a JUnit report for CI:
+Generate a suite from a server's tools, run a suite, and check a remote server
+over HTTP:
 
-![Terminal demo of MCP Rig running three passing tests, selecting one test with the smoke tag, and exporting a JUnit report.](docs/assets/cli-demo.gif)
+![Terminal demo of MCP Rig generating eight cases with init, running a suite with three passing tests, and checking a remote server over HTTP.](docs/assets/cli-demo-v0.3.0.gif)
 
-The demo runs the repository's local fixture server. Try it from a development
-checkout after completing the [development setup](#development-setup):
+The demo uses the repository's fixture server, locally and over Streamable
+HTTP. Try it from a development checkout after completing the
+[development setup](#development-setup):
 
 ```bash
+mcp-rig init "python tests/fixtures/fixture_server.py" --output suite.yaml
 mcp-rig run examples/fixture.yaml
-mcp-rig run examples/feature-tour/filtering.yaml --tag smoke
-mcp-rig run examples/fixture.yaml --junit results.xml
+python tests/fixtures/http_server.py streamable-http 8765 &
+mcp-rig check http://127.0.0.1:8765/mcp --ignore param-no-description
 ```
 
 ## Installation

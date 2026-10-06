@@ -5,8 +5,12 @@ background tint, and restrained cyan highlights. The animation uses output captu
 from the local CLI, including its measured timings; it types commands and reveals
 that captured output at a readable pace.
 
-To regenerate, install Pillow in an artwork environment and run from a development
-checkout with MCP Rig installed:
+Each asset name carries the version whose features it shows, for example
+`banner-v0.3.0.png`. The README always points at the newest set. Older sets stay in
+this directory as a record of earlier releases, but nothing links to them.
+
+To render a set for the version in `pyproject.toml`, install Pillow in an artwork
+environment and run from a development checkout with MCP Rig installed:
 
 ```bash
 python -m pip install Pillow
@@ -15,13 +19,19 @@ python scripts/render_readme_assets.py
 
 The renderer uses the checkout's `.venv/bin/python` for CLI commands when available,
 otherwise its own interpreter. It uses Menlo and Arial on macOS, or DejaVu Sans
-and DejaVu Sans Mono on Linux. All demo commands must succeed, and the generated
-JUnit report is checked for three passing tests before rendering. The temporary
-report is removed afterwards.
+and DejaVu Sans Mono on Linux. All demo commands must succeed. The demo checks that
+`init` generated eight cases and that the suite has three passing tests. It writes
+the generated `suite.yaml` to the repository root and removes it afterwards. The
+remote scene serves the fixture over Streamable HTTP on port 8765, which must be
+free.
 
-- `banner.png`: README banner, with transparent rounded corners.
-- `cli-demo.gif`: looping demo of suites, tag selection, and JUnit export.
-- `cli-demo-poster.png`: still frame for previews and environments without animation.
+| Version | Banner | Terminal demo | Poster | Demo shows |
+| --- | --- | --- | --- | --- |
+| 0.3.0 (current) | `banner-v0.3.0.png` | `cli-demo-v0.3.0.gif` | `cli-demo-poster-v0.3.0.png` | `init`, a suite run, and `check` against a remote HTTP server |
+| 0.1.1 | `banner-v0.1.1.png` | `cli-demo-v0.1.1.gif` | `cli-demo-poster-v0.1.1.png` | A suite run, tag selection, and JUnit export |
+
+The banner has transparent rounded corners. The poster is the demo's last frame,
+for previews and environments without animation.
 
 The README uses repository-relative image paths, which work in local previews
 and on GitHub. PyPI needs absolute public image URLs to display these assets.

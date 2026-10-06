@@ -10,13 +10,19 @@ import math
 import os
 import subprocess
 import sys
+import tomllib
+from contextlib import contextmanager
 from pathlib import Path
-from xml.etree import ElementTree
 
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "docs" / "assets"
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+BANNER = f"banner-v{VERSION}.png"
+DEMO = f"cli-demo-v{VERSION}.gif"
+POSTER = f"cli-demo-poster-v{VERSION}.png"
+DEMO_PORT = 8765
 WHITE = "#f5f5fa"
 MUTED = "#a8a9c0"
 CYAN = "#91e4ef"
@@ -50,12 +56,12 @@ def banner() -> None:
     d.rounded_rectangle((1, 1, width - 2, height - 2), radius=16, outline="#2e2e37", width=1)
     d.text((64, 61), "MCP Rig", font=font(78, bold=True), fill=WHITE)
     d.text((68, 166), "Test your MCP servers.", font=font(30), fill=WHITE)
-    d.text((68, 218), "YAML suites. Deterministic results. Ready for CI.",
+    d.text((68, 218), "YAML suites. Local and remote servers. Ready for CI.",
            font=font(22), fill=MUTED)
     # Three compact examples keep the workflow concrete and easy to scan.
     for x, title, lines in [
         (780, "YAML suite", ["call: add", "args:", "  a: 2", "  b: 3"]),
-        (1040, "MCP server", ["stdio", "tools/call", "add(2, 3)", "→ 5"]),
+        (1040, "MCP server", ["stdio · HTTP", "tools/call", "add(2, 3)", "→ 5"]),
         (1300, "Test results", ["✓ 3 passed", "0 failed", "0 errors", "JUnit XML"]),
     ]:
         d.text((x, 88), title, font=font(19), fill=WHITE)
@@ -71,12 +77,32 @@ def banner() -> None:
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=16, fill=255)
     image = image.convert("RGBA")
     image.putalpha(mask)
-    image.save(ASSETS / "banner.png", optimize=True)
+    image.save(ASSETS / BANNER, optimize=True)
+
+
+def interpreter() -> str:
+    python = ROOT / ".venv" / "bin" / "python"
+    return str(python) if python.exists() else sys.executable
+
+
+@contextmanager
+def remote_fixture():
+    """Serve the fixture tools over Streamable HTTP on the demo's fixed port."""
+    process = subprocess.Popen(
+        [interpreter(), "tests/fixtures/http_server.py", "streamable-http", str(DEMO_PORT)],
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+    )
+    try:
+        if not process.stdout.readline().startswith("PORT "):
+            raise RuntimeError(f"The HTTP fixture could not listen on port {DEMO_PORT}.")
+        yield f"http://127.0.0.1:{DEMO_PORT}/mcp"
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
 
 
 def capture(command: list[str]) -> list[str]:
-    python = ROOT / ".venv" / "bin" / "python"
-    executable = str(python) if python.exists() else sys.executable
+    executable = interpreter()
     env = dict(os.environ)
     env["PATH"] = str(Path(executable).parent) + os.pathsep + env["PATH"]
     process = subprocess.run(
@@ -115,20 +141,25 @@ def terminal_frame(command: str, lines: list[str], step: str, cursor: bool = Fal
 
 
 def terminal_demo() -> None:
-    report_path = ASSETS / ".demo-results.xml"
+    suite_path = ROOT / "suite.yaml"
+    if suite_path.exists():
+        raise RuntimeError("Move suite.yaml out of the repository root before rendering the demo.")
+    init_command = 'mcp-rig init "python tests/fixtures/fixture_server.py" --output suite.yaml'
     try:
-        suite = capture(["run", "examples/fixture.yaml"])
-        filtered = capture(["run", "examples/feature-tour/filtering.yaml", "--tag", "smoke"])
-        junit = capture(["run", "examples/fixture.yaml", "--junit", str(report_path)])
-        report = ElementTree.parse(report_path).getroot()
-        if int(report.attrib["tests"]) != 3 or int(report.attrib["failures"]) != 0:
-            raise RuntimeError("The demo's JUnit report must contain three passing tests.")
+        generated = capture(["init", "python tests/fixtures/fixture_server.py", "--output", "suite.yaml"])
+        if "wrote 8 cases" not in generated[0]:
+            raise RuntimeError("The demo's init step must generate one case per fixture tool.")
     finally:
-        report_path.unlink(missing_ok=True)
+        suite_path.unlink(missing_ok=True)
+    suite = capture(["run", "examples/fixture.yaml"])
+    if "3 passed, 0 failed" not in suite[-1]:
+        raise RuntimeError("The demo suite must report three passing tests.")
+    with remote_fixture() as url:
+        remote = capture(["check", url, "--ignore", "param-no-description"])
     scenes = [
-        ("01 / RUN A SUITE", "mcp-rig run examples/fixture.yaml", suite),
-        ("02 / SELECT BY TAG", "mcp-rig run examples/feature-tour/filtering.yaml --tag smoke", filtered),
-        ("03 / EXPORT FOR CI", "mcp-rig run examples/fixture.yaml --junit results.xml", junit),
+        ("01 / GENERATE A SUITE", init_command, generated),
+        ("02 / RUN A SUITE", "mcp-rig run examples/fixture.yaml", suite),
+        ("03 / CHECK A REMOTE SERVER", f"mcp-rig check {url} --ignore param-no-description", remote),
     ]
     frames, durations = [], []
     for step, command, output in scenes:
@@ -144,16 +175,16 @@ def terminal_demo() -> None:
     # One shared palette avoids flicker between GIF frames.
     palette = frames[-1].quantize(colors=96)
     indexed = [frame.quantize(palette=palette, dither=Image.Dither.NONE) for frame in frames]
-    indexed[0].save(ASSETS / "cli-demo.gif", save_all=True, append_images=indexed[1:],
+    indexed[0].save(ASSETS / DEMO, save_all=True, append_images=indexed[1:],
                     duration=durations, loop=0, optimize=True, disposal=1)
-    frames[-1].save(ASSETS / "cli-demo-poster.png", optimize=True)
+    frames[-1].save(ASSETS / POSTER, optimize=True)
 
 
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
     banner()
     terminal_demo()
-    for name in ("banner.png", "cli-demo.gif", "cli-demo-poster.png"):
+    for name in (BANNER, DEMO, POSTER):
         path = ASSETS / name
         print(f"{path.relative_to(ROOT)}: {path.stat().st_size:,} bytes")
 
