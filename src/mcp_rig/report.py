@@ -33,6 +33,8 @@ def render_suite(title: str, result: SuiteResult, color: bool = False) -> str:
             assert item.skip_reason is not None
             lines.append(f"- {item.name}")
             lines.append(f"    {item.skip_reason}")
+        if item.fault is not None:
+            lines.append(f"    fault injected on attempt 1: {item.fault}")
         lines.extend(
             f"    retried after attempt {attempt}: {error.category}: {error.exception_type}: {error.message}"
             for attempt, error in enumerate(item.retried_errors, start=1)

@@ -56,6 +56,7 @@ def test_feature_tour_covers_the_complete_suite_contract() -> None:
     assert any(suite.setup and suite.teardown for suite in suites)
     assert any(case.verify for case in cases)
     assert any(case.retry_attempts for case in cases)
+    assert {case.fault for case in cases} >= {"drop_response", "disconnect"}
 
     configured = next(suite for suite in suites if suite.path.name == "server-config.yaml")
     assert configured.server.args

@@ -990,7 +990,7 @@ def test_check_handles_valid_boolean_property_schema(
             return CallOutcome(True, "unknown tool", None, 1.0)
 
     @asynccontextmanager
-    async def fake_connect(spec, show_server_logs=False):
+    async def fake_connect(spec, show_server_logs=False, faults=None):
         yield BooleanSchemaProbe()
 
     monkeypatch.setattr(cli_module, "connect", fake_connect)

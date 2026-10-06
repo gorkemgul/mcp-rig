@@ -19,9 +19,10 @@ mcp-rig run examples/feature-tour/
   `snapshots.snap.yaml` baseline.
 - `server-config.yaml` demonstrates structured `command`, `args`, `cwd`, and
   `env` server configuration.
-- `state-and-retries.yaml` demonstrates `setup`, `teardown`, `retry`, and
-  `verify` against a ledger fixture that commits a record and then loses its
-  response. The unprotected tool creates a duplicate; the idempotent tool does not.
+- `state-and-retries.yaml` demonstrates `fault`, `setup`, `teardown`, `retry`,
+  and `verify`. MCP Rig loses a create call's response on purpose, retries it,
+  and checks the ledger: the unprotected tool creates a duplicate, and the
+  idempotent tool does not.
 
 ## Run and report commands
 

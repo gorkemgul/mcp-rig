@@ -16,6 +16,7 @@ from referencing.exceptions import Unresolvable
 from referencing.jsonschema import DRAFT202012
 
 from mcp_rig.client import TRANSPORTS, ServerSpec, is_url
+from mcp_rig.faults import FAULTS
 from mcp_rig.selection import validate_tag
 from mcp_rig.snapshots import SnapshotError, snapshot_path
 
@@ -61,6 +62,7 @@ class Case:
     retry_attempts: int = 0
     retry_rerun_setup: bool = False
     after_timeout: str | None = None
+    fault: str | None = None
 
 
 @dataclass(frozen=True)
@@ -216,6 +218,9 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
     after_timeout = raw.get("after_timeout")
     if after_timeout is not None and after_timeout not in AFTER_TIMEOUT_CHOICES:
         raise SpecError(f"{label}: 'after_timeout' must be one of: {', '.join(AFTER_TIMEOUT_CHOICES)}")
+    fault = raw.get("fault")
+    if fault is not None and fault not in FAULTS:
+        raise SpecError(f"{label}: 'fault' must be one of: {', '.join(FAULTS)}")
     tags = _parse_tags(raw.get("tags", _MISSING), label)
     return Case(
         name=name,
@@ -228,6 +233,7 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
         retry_attempts=retry_attempts,
         retry_rerun_setup=retry_rerun_setup,
         after_timeout=after_timeout,
+        fault=fault,
     )
 
 

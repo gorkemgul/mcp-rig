@@ -13,6 +13,7 @@ from mcp_types import REQUEST_TIMEOUT
 
 from mcp_rig.assertions import check
 from mcp_rig.client import CallOutcome, Probe, ServerSpec, connect
+from mcp_rig.faults import FaultInjector
 from mcp_rig.snapshots import SnapshotSession
 from mcp_rig.spec import Case, Step, Suite
 
@@ -48,6 +49,7 @@ class CaseResult:
     error: InfrastructureError | None = None
     skip_reason: str | None = None
     retried_errors: tuple[InfrastructureError, ...] = ()
+    fault: str | None = None
 
     @property
     def attempts(self) -> int:
@@ -89,10 +91,13 @@ class _Session:
         self._stack: AsyncExitStack | None = None
         self._probe: Probe | None = None
         self.broken = False
+        self.faults = FaultInjector()
 
     async def open(self) -> None:
         stack = AsyncExitStack()
-        self._probe = await stack.enter_async_context(connect(self._spec, show_server_logs=self._show_server_logs))
+        self._probe = await stack.enter_async_context(
+            connect(self._spec, show_server_logs=self._show_server_logs, faults=self.faults)
+        )
         self._stack = stack
         self.broken = False
 
@@ -108,16 +113,26 @@ class _Session:
             pass
         await self.open()
 
-    async def call(self, name: str, args: dict[str, Any], timeout_s: float) -> CallOutcome:
+    async def call(
+        self,
+        name: str,
+        args: dict[str, Any],
+        timeout_s: float,
+        fault: str | None = None,
+    ) -> CallOutcome:
         if self.broken:
             await self.reconnect()
         assert self._probe is not None
+        if fault is not None:
+            self.faults.arm(fault)
         try:
             return await self._probe.call(name, args, timeout_s=timeout_s)
         except Exception as exc:
             if not _is_timeout_error(exc):
                 self.broken = True
             raise
+        finally:
+            self.faults.disarm()
 
 
 async def run_suite(
@@ -192,14 +207,19 @@ async def _run_case(
 ) -> CaseResult:
     started = time.perf_counter()
     retried: list[InfrastructureError] = []
+    injected: str | None = None
     while True:
+        # Only the first attempt is faulted; retries and verify steps run normally.
+        fault = case.fault if not retried else None
         try:
-            outcome = await session.call(case.call, case.args, case.timeout_s)
+            outcome = await session.call(case.call, case.args, case.timeout_s, fault=fault)
             break
         except Exception as exc:
             error = _normalize_error(exc, ErrorCategory.TRANSPORT)
+            if fault is not None and session.faults.injected:
+                injected = fault
             if len(retried) >= case.retry_attempts:
-                return _error_result(case, started, error, retried)
+                return _error_result(case, started, error, retried, fault=injected)
             retried.append(error)
             if case.retry_rerun_setup and session.broken:
                 setup_error = await _run_steps(session, setup, ErrorCategory.SETUP)
@@ -209,7 +229,7 @@ async def _run_case(
                         setup_error.exception_type,
                         f"setup (after reconnect): {setup_error.message}",
                     )
-                    return _error_result(case, started, located, retried)
+                    return _error_result(case, started, located, retried, fault=injected)
 
     failures = check(case.expect, outcome)
     if snapshots is not None and case.expect.get("snapshot") is True:
@@ -221,7 +241,7 @@ async def _run_case(
         except Exception as exc:
             error = _normalize_error(exc, ErrorCategory.TRANSPORT)
             located = InfrastructureError(error.category, error.exception_type, f"{where}: {error.message}")
-            return _error_result(case, started, located, retried, outcome)
+            return _error_result(case, started, located, retried, outcome, fault=injected)
         failures.extend(f"{where}: {failure}" for failure in check(step.expect, step_outcome))
     return CaseResult(
         name=case.name,
@@ -230,6 +250,7 @@ async def _run_case(
         failures=failures,
         outcome=outcome,
         retried_errors=tuple(retried),
+        fault=injected,
     )
 
 
@@ -239,6 +260,7 @@ def _error_result(
     error: InfrastructureError,
     retried: list[InfrastructureError],
     outcome: CallOutcome | None = None,
+    fault: str | None = None,
 ) -> CaseResult:
     return CaseResult(
         name=case.name,
@@ -247,6 +269,7 @@ def _error_result(
         outcome=outcome,
         error=error,
         retried_errors=tuple(retried),
+        fault=fault,
     )
 
 

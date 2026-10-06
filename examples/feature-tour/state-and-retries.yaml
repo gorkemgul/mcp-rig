@@ -1,6 +1,7 @@
-# A tool can commit its side effect and then lose its response. These cases
-# arm that failure, retry the identical call, and check server state with
-# `verify` instead of trusting the retry's response alone.
+# A tool can commit its side effect and then lose its response. `fault` makes
+# MCP Rig lose the response on purpose; the server itself is not modified.
+# `retry` repeats the identical call, and `verify` checks the server state
+# instead of trusting the retry's response alone.
 server: python ../../tests/fixtures/ledger_server.py
 
 setup:
@@ -10,13 +11,10 @@ teardown:
   - call: reset_records
 
 tests:
-  - name: arms a lost response for the unprotected tool
-    call: arm_lost_response
-    args: {mode: disconnect}
-
   - name: unprotected retry creates a duplicate
     call: create_record
     args: {name: invoice}
+    fault: disconnect
     retry:
       attempts: 1
     expect:
@@ -27,13 +25,10 @@ tests:
         expect:
           json_path: {records: 2, invocations: 2}
 
-  - name: arms a lost response for the idempotent tool
-    call: arm_lost_response
-    args: {mode: hang}
-
   - name: idempotent retry applies once
     call: create_record_idempotent
     args: {name: receipt, idempotency_key: receipt-001}
+    fault: drop_response
     timeout_s: 0.5
     retry:
       attempts: 1

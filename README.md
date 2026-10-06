@@ -28,8 +28,8 @@ behaving that way:
 - **Focused checks.** Expected errors, text, regular expressions, JSON paths,
   JSON Schema, latency limits, and full-response snapshots.
 - **State, not just responses.** `verify` steps check what a call actually
-  changed. Opt-in retries show whether a tool applies its effect twice when a
-  response is lost.
+  changed. `fault` loses a response on purpose, and opt-in retries show whether
+  your tool applies its effect twice.
 - **CI-ready output.** JUnit XML, clear exit codes, tag and name filters, and a
   GitHub Action.
 - **Server checks without a suite.** `mcp-rig check` probes protocol behavior
@@ -415,9 +415,44 @@ checks while the operation has happened twice. Check the resulting state with
 `verify`, and set the expected count from the tool's contract: an unprotected
 tool should produce two records and a tool with an idempotency key should
 produce one. The key is a tool argument, not the JSON-RPC request ID, which
-changes with every attempt. The
+changes with every attempt.
+
+### Lose a response on purpose
+
+`fault` makes MCP Rig lose a call's response, so you can test retries against
+your own server without changing it:
+
+```yaml
+- name: order is created once despite a lost response
+  call: create_order
+  args: {sku: A1, idempotency_key: order-1}
+  fault: drop_response
+  timeout_s: 2
+  retry:
+    attempts: 1
+  verify:
+    - call: count_orders
+      expect:
+        json_path: {count: 1}
+```
+
+MCP Rig relays every message between the client and the server. With a fault,
+it forwards the `tools/call` request so the server executes it, then intercepts
+the response:
+
+- `drop_response` discards the response. The attempt times out after
+  `timeout_s`, so keep it short, and the session stays open for the retry.
+- `disconnect` discards the response and closes the connection. The retry
+  reconnects: a local server starts as a fresh process, so only state kept
+  outside that process survives, and a remote server gets a new HTTP session.
+
+Only the first attempt is faulted; retries and `verify` steps run normally.
+Without `retry`, the faulted attempt is an infrastructure error. Reports name
+the injected fault, and JUnit records it as the `mcp-rig.fault` property. Faults
+work over stdio and HTTP. The
 [state and retries example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/feature-tour/state-and-retries.yaml)
-runs this scenario against a fixture that loses a response on purpose.
+shows both faults against a ledger fixture: the unprotected tool creates a
+duplicate, and the idempotent tool does not.
 
 ## Check a server without a suite
 

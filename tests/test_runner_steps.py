@@ -38,7 +38,7 @@ class ScriptedServer:
                 return CallOutcome(False, result, None, 1.0)
 
         @asynccontextmanager
-        async def fake_connect(spec, show_server_logs=False):
+        async def fake_connect(spec, show_server_logs=False, faults=None):
             server.connections += 1
             yield FakeProbe(server.connections)
 

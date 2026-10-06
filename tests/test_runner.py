@@ -38,7 +38,7 @@ async def test_runner_combines_existing_and_snapshot_failures(monkeypatch, tmp_p
             return CallOutcome(False, "actual", None, 1.0)
 
     @asynccontextmanager
-    async def fake_connect(spec, show_server_logs=False):
+    async def fake_connect(spec, show_server_logs=False, faults=None):
         yield FakeProbe()
 
     monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
@@ -74,7 +74,7 @@ async def test_runner_stages_snapshot_update_without_hiding_other_failure(
             return CallOutcome(False, "actual", None, 1.0)
 
     @asynccontextmanager
-    async def fake_connect(spec, show_server_logs=False):
+    async def fake_connect(spec, show_server_logs=False, faults=None):
         yield FakeProbe()
 
     monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
@@ -111,7 +111,7 @@ async def test_runner_does_not_evaluate_snapshots_for_ordinary_case(
             return CallOutcome(False, "ok", {"not-json": {1, 2}}, 1.0)
 
     @asynccontextmanager
-    async def fake_connect(spec, show_server_logs=False):
+    async def fake_connect(spec, show_server_logs=False, faults=None):
         yield FakeProbe()
 
     monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
@@ -150,7 +150,7 @@ async def test_protocol_error_can_be_an_expected_passing_result(monkeypatch, tmp
             raise MCPError(INVALID_PARAMS, "Unknown tool: missing")
 
     @asynccontextmanager
-    async def fake_connect(spec, show_server_logs=False):
+    async def fake_connect(spec, show_server_logs=False, faults=None):
         yield Probe(ProtocolErrorClient())
 
     monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
@@ -178,7 +178,7 @@ async def test_transport_timeout_aborts_later_cases_and_preserves_earlier_failur
             return CallOutcome(False, "hi", None, 1.0)
 
     @asynccontextmanager
-    async def fake_connect(spec, show_server_logs=False):
+    async def fake_connect(spec, show_server_logs=False, faults=None):
         yield FakeProbe()
 
     monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
@@ -249,7 +249,7 @@ async def test_base_exception_from_probe_propagates(monkeypatch, tmp_path):
             raise KeyboardInterrupt
 
     @asynccontextmanager
-    async def fake_connect(spec, show_server_logs=False):
+    async def fake_connect(spec, show_server_logs=False, faults=None):
         yield InterruptingProbe()
 
     monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
@@ -286,7 +286,7 @@ async def test_teardown_failure_preserves_completed_results(monkeypatch, tmp_pat
             return CallOutcome(False, "ok", None, 1.0)
 
     @asynccontextmanager
-    async def failing_teardown(spec, show_server_logs=False):
+    async def failing_teardown(spec, show_server_logs=False, faults=None):
         yield FakeProbe()
         raise RuntimeError("close failed")
 

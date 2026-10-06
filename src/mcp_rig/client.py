@@ -19,6 +19,8 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, TextContent
 
+from mcp_rig.faults import FaultInjector, inject_faults
+
 TRANSPORTS = ("streamable-http", "sse")
 HTTP_TIMEOUT = httpx2.Timeout(30.0, read=300.0)
 
@@ -146,10 +148,18 @@ class Probe:
 
 
 @asynccontextmanager
-async def connect(spec: ServerSpec, show_server_logs: bool = False) -> AsyncIterator[Probe]:
-    """Connect to one server and yield an initialized MCP Rig probe."""
+async def connect(
+    spec: ServerSpec,
+    show_server_logs: bool = False,
+    faults: FaultInjector | None = None,
+) -> AsyncIterator[Probe]:
+    """Connect to one server and yield an initialized MCP Rig probe.
+
+    With a fault injector, every message passes through a relay that can lose one
+    tool response on purpose.
+    """
     if spec.is_remote:
-        async with _connect_http(spec) as probe:
+        async with _connect_http(spec, faults) as probe:
             yield probe
         return
     params = StdioServerParameters(
@@ -160,13 +170,13 @@ async def connect(spec: ServerSpec, show_server_logs: bool = False) -> AsyncIter
     )
     log_context = nullcontext(sys.stderr) if show_server_logs else open(os.devnull, "w", encoding="utf-8")
     with log_context as errlog:
-        transport = stdio_client(params, errlog=errlog)
+        transport = _with_faults(stdio_client(params, errlog=errlog), faults)
         async with Client(transport) as client:
             yield Probe(client)
 
 
 @asynccontextmanager
-async def _connect_http(spec: ServerSpec) -> AsyncIterator[Probe]:
+async def _connect_http(spec: ServerSpec, faults: FaultInjector | None) -> AsyncIterator[Probe]:
     assert spec.url is not None
     http_errors: list[httpx2.Response] = []
 
@@ -193,7 +203,7 @@ async def _connect_http(spec: ServerSpec) -> AsyncIterator[Probe]:
             client = await stack.enter_async_context(http_client(headers=spec.headers))
             transport = streamable_http_client(spec.url, http_client=client)
         try:
-            session = await stack.enter_async_context(Client(transport))
+            session = await stack.enter_async_context(Client(_with_faults(transport, faults)))
         except Exception as exc:
             if http_errors:
                 response = http_errors[-1]
@@ -202,3 +212,7 @@ async def _connect_http(spec: ServerSpec) -> AsyncIterator[Probe]:
                 ) from exc
             raise
         yield Probe(session)
+
+
+def _with_faults(transport: Any, faults: FaultInjector | None) -> Any:
+    return transport if faults is None else inject_faults(transport, faults)
