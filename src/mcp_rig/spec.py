@@ -126,6 +126,8 @@ def _parse_server(raw: Any, path: Path) -> ServerSpec:
             spec = ServerSpec.from_command_line(raw)
         except ValueError as exc:
             raise SpecError(f"{path}: invalid 'server': {exc}") from exc
+        spec.command = _interpolate(spec.command, path, "server")
+        spec.args = [_interpolate(arg, path, "server") for arg in spec.args]
     elif isinstance(raw, dict):
         command = raw.get("command")
         if not isinstance(command, str) or not command.strip():
@@ -146,9 +148,13 @@ def _parse_server(raw: Any, path: Path) -> ServerSpec:
             spec = ServerSpec.from_command_line(command)
         except ValueError as exc:
             raise SpecError(f"{path}: invalid 'server.command': {exc}") from exc
-        spec.args.extend(args)
-        spec.env = env
-        spec.cwd = cwd
+        spec.command = _interpolate(spec.command, path, "server.command")
+        spec.args = [_interpolate(arg, path, "server.command") for arg in spec.args]
+        spec.args.extend(_interpolate(arg, path, f"server.args[{index}]") for index, arg in enumerate(args))
+        if env is not None:
+            spec.env = {key: _interpolate(value, path, f"server.env.{key}") for key, value in env.items()}
+        spec.cwd = None if cwd is None else _interpolate(cwd, path, "server.cwd")
+        spec.inherit_env = _parse_inherit_env(raw.get("inherit_env", False), path)
     else:
         raise SpecError(f"{path}: 'server' must be a command string or mapping")
 
@@ -164,11 +170,21 @@ def _parse_server(raw: Any, path: Path) -> ServerSpec:
     return spec
 
 
+def _parse_inherit_env(raw: Any, path: Path) -> bool | tuple[str, ...]:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, list) and all(isinstance(name, str) and _ENV_NAME.fullmatch(name) for name in raw):
+        return tuple(raw)
+    raise SpecError(f"{path}: 'server.inherit_env' must be true, false, or a list of variable names")
+
+
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+SUITE_DIR = "SUITE_DIR"
 
 
 def _parse_remote_server(raw: dict[str, Any], path: Path) -> ServerSpec:
-    local_keys = sorted({"command", "args", "env", "cwd"} & set(raw))
+    local_keys = sorted({"command", "args", "env", "cwd", "inherit_env"} & set(raw))
     if local_keys:
         raise SpecError(f"{path}: 'server.url' cannot be combined with {', '.join(local_keys)}")
     url = raw.get("url")
@@ -190,10 +206,15 @@ def _parse_remote_server(raw: dict[str, Any], path: Path) -> ServerSpec:
 
 
 def _interpolate(value: str, path: Path, where: str) -> str:
-    """Replace ${NAME} with environment values so secrets stay out of suites."""
+    """Replace ${NAME} with environment values so secrets stay out of suites.
+
+    ${SUITE_DIR} is the absolute directory of the suite file.
+    """
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
+        if name == SUITE_DIR:
+            return str(path.parent.resolve())
         if name not in os.environ:
             raise SpecError(f"{path}: '{where}' uses ${{{name}}}, but environment variable {name} is not set")
         return os.environ[name]
