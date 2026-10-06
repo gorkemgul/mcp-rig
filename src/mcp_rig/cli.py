@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import anyio
 from mcp_rig.batch import BatchResult, run_batch
 from mcp_rig.checks import CheckResult, run_protocol_checks
 from mcp_rig.client import ServerSpec, ToolInfo, connect, is_url
+from mcp_rig.coverage import measure, render_coverage
 from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
 from mcp_rig.lint import LintWarning, filter_warnings, lint_tools, parse_ignore_pattern
@@ -19,6 +21,7 @@ from mcp_rig.runner import CaseStatus, ErrorCategory
 from mcp_rig.scaffold import header_variables, scaffold_suite
 from mcp_rig.selection import SelectionFilter, validate_tag
 from mcp_rig.snapshots import SNAPSHOT_SUFFIX
+from mcp_rig.spec import SpecError, load_suite
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -139,12 +142,42 @@ def main(argv: list[str] | None = None) -> int:
         help="show the MCP server's stderr",
     )
 
+    coverage_parser = commands.add_parser(
+        "coverage",
+        help="report advertised tools that no suite calls",
+    )
+    coverage_parser.add_argument(
+        "targets",
+        nargs="+",
+        metavar="TARGET",
+        help="YAML suite file or directory containing suites",
+    )
+    coverage_parser.add_argument(
+        "--min",
+        dest="minimum",
+        type=_percent_arg,
+        metavar="PERCENT",
+        help="exit 1 when any server's coverage is below PERCENT",
+    )
+    coverage_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print machine-readable JSON",
+    )
+    coverage_parser.add_argument(
+        "--server-logs",
+        action="store_true",
+        help="show the MCP server's stderr",
+    )
+
     args = parser.parse_args(argv)
     color = sys.stdout.isatty()
     if args.command == "run":
         return _cmd_run(args, color=color)
     if args.command == "init":
         return _cmd_init(args)
+    if args.command == "coverage":
+        return _cmd_coverage(args)
     return _cmd_check(args, color=color)
 
 
@@ -287,6 +320,51 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(f"header {name} reads ${{{variable}}}; set it before running the suite")
     print(f"next: replace the placeholders, then run `mcp-rig run {output}`")
     return EXIT_OK
+
+
+def _cmd_coverage(args: argparse.Namespace) -> int:
+    discovery = discover_suites(args.targets)
+    errors = [f"{error.target}: {error.message}" for error in discovery.errors]
+    suites = []
+    for path in discovery.paths:
+        try:
+            suites.append(load_suite(path))
+        except SpecError as exc:
+            errors.append(str(exc))
+
+    async def list_tools(spec: ServerSpec) -> list[ToolInfo]:
+        return await _list_tools(spec, args.server_logs)
+
+    results = anyio.run(measure, suites, list_tools) if suites else []
+    below = [
+        item for item in results
+        if item.error is None and args.minimum is not None and item.percent < args.minimum
+    ]
+    if args.json:
+        print(json.dumps({"servers": [item.to_json() for item in results], "errors": errors}, indent=2))
+    else:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        if results:
+            print(render_coverage(results))
+        for item in below:
+            print(
+                f"error: {item.server} coverage {item.percent:.0f}% is below --min {args.minimum:g}%",
+                file=sys.stderr,
+            )
+    if errors or any(item.error is not None for item in results) or not results:
+        return EXIT_USAGE
+    return EXIT_FAILED if below else EXIT_OK
+
+
+def _percent_arg(value: str) -> float:
+    try:
+        percent = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number") from None
+    if not 0 <= percent <= 100:
+        raise argparse.ArgumentTypeError("must be between 0 and 100")
+    return percent
 
 
 async def _list_tools(spec: ServerSpec, show_server_logs: bool) -> list[ToolInfo]:

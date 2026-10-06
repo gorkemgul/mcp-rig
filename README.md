@@ -35,6 +35,7 @@ behaving that way:
 - **Server checks without a suite.** `mcp-rig check` probes protocol behavior
   and flags weak tool definitions, including side-effecting tools that are
   unsafe to retry.
+- **Coverage.** `mcp-rig coverage` lists the tools no suite exercises.
 
 MCP Rig tests the tools of local stdio servers and of remote servers over
 Streamable HTTP or SSE.
@@ -485,6 +486,35 @@ MCP Rig tests tools; resources and prompts are not covered yet.
 
 Repository CI tests Python 3.11 through 3.13 and validates both wheel and
 source distributions without publishing them.
+
+## Find untested tools
+
+`coverage` compares each server's advertised tools with the tools your suites
+call, and lists the gaps:
+
+```bash
+mcp-rig coverage tests/mcp/
+mcp-rig coverage tests/mcp/ --min 90
+mcp-rig coverage tests/mcp/ --json
+```
+
+```text
+python server.py
+  suites: tests/mcp/orders.yaml, tests/mcp/users.yaml
+  9/12 tools covered (75%)
+  missing: delete_order, refund, export_csv
+```
+
+A tool counts as covered when a case, a `verify` step, or a `setup` or
+`teardown` step calls it. Suites that start the same server are merged, even
+when they reach the same script through different relative paths. Names that
+suites call but the server does not advertise are listed too, which catches
+typos and removed tools.
+
+`coverage` only lists tools and never calls one, so it is safe to point at
+production servers. `--min PERCENT` exits with `1` when any server is below the
+threshold. Configuration errors and servers that cannot be reached exit with
+`2`.
 
 ## Run in GitHub Actions
 
