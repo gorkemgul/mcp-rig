@@ -106,12 +106,20 @@ def _server_lines(server: ServerSpec, suite_path: Path | None) -> list[str]:
                 lines.append(f"    {_scalar(name)}: {_scalar('${' + variable + '}')}")
         return lines
     cwd = _relative_cwd(suite_path)
-    if cwd is None:
+    if cwd is None and not server.env and not server.inherit_env:
         return [f"server: {_scalar(_command_line(server))}"]
     lines = ["server:", f"  command: {_scalar(server.command)}"]
     if server.args:
         lines.append(f"  args: {_flow(server.args)}")
-    lines.append(f"  cwd: {_scalar(cwd)}")
+    if cwd is not None:
+        lines.append(f"  cwd: {_scalar(cwd)}")
+    if server.env:
+        # Values may be secrets, so the suite reads them from the environment it runs in.
+        lines.append("  env:")
+        for name in server.env:
+            lines.append(f"    {name}: {_scalar('${' + name + '}')}")
+    if server.inherit_env:
+        lines.append(f"  inherit_env: {_flow(list(server.inherit_env))}")
     return lines
 
 

@@ -165,6 +165,49 @@ followed by aggregate suite and case counts. A JUnit file contains one
 `<testsuite>` for every suite or invalid target beneath a shared `<testsuites>`
 root.
 
+### Configure a local server
+
+The mapping form of `server` sets the command's arguments, environment, and
+working directory:
+
+```yaml
+server:
+  command: npx
+  args: [-y, "@example/mcp-server", "--data", "${SUITE_DIR}/fixtures"]
+  env:
+    API_TOKEN: "${API_TOKEN}"
+  inherit_env: [HTTPS_PROXY, NPM_CONFIG_USERCONFIG]
+```
+
+A local server starts with only a minimal environment, such as `HOME`, `PATH`,
+and `USER`, not the whole environment of the shell that runs MCP Rig. Package
+runners like `npx` and `uvx` can need more, for example proxy or registry
+settings. There are two ways to pass variables:
+
+- `env` sets variables. `${NAME}` in a value is replaced with the environment
+  variable `NAME` when the suite loads, and a missing variable is a
+  configuration error.
+- `inherit_env` copies the listed variables from the current environment when
+  they are set and skips them when they are not, which suits optional settings
+  such as proxies. `inherit_env: true` copies the whole environment. Values in
+  `env` take precedence.
+
+`${NAME}` also works in the command, `args`, and `cwd`. `${SUITE_DIR}` is the
+absolute directory of the suite file, for paths that must not depend on where
+MCP Rig runs. A relative `cwd` is resolved against the suite's directory, which
+is also the default working directory.
+
+`check` and `init` take repeatable `--env` options for a server command.
+`--env NAME=VALUE` sets a variable, and `--env NAME` copies it from the current
+shell:
+
+```bash
+mcp-rig check "npx -y @example/mcp-server" --env HTTPS_PROXY --env API_TOKEN="$API_TOKEN"
+```
+
+`init` never writes `--env` values. It writes `${NAME}` references and
+`inherit_env` names, and prints which variables to set.
+
 ### Test a remote server
 
 Point a suite at an HTTP endpoint instead of a command:
@@ -185,7 +228,7 @@ tests:
 `url` uses Streamable HTTP. Add `transport: sse` for servers that still use the
 legacy SSE transport. The short form `server: https://mcp.example.com/mcp` works
 when no headers are needed. `url` cannot be combined with `command`, `args`,
-`env`, or `cwd`.
+`env`, `inherit_env`, or `cwd`.
 
 `${NAME}` in `url` and header values is replaced with the environment variable
 `NAME` when the suite loads, so tokens stay out of committed files. A missing

@@ -36,10 +36,25 @@ class ServerSpec:
     url: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
     transport: str = "streamable-http"
+    inherit_env: bool | tuple[str, ...] = False
 
     @property
     def is_remote(self) -> bool:
         return self.url is not None
+
+    def child_env(self) -> dict[str, str] | None:
+        """Variables to add to the SDK's minimal default environment for a stdio server.
+
+        ``inherit_env`` copies the whole current environment (``True``) or the named
+        variables that are set; ``env`` is applied on top.
+        """
+        if self.inherit_env is True:
+            inherited = dict(os.environ)
+        else:
+            inherited = {name: os.environ[name] for name in self.inherit_env or () if name in os.environ}
+        if not inherited and self.env is None:
+            return None
+        return inherited | (self.env or {})
 
     @classmethod
     def from_command_line(cls, command_line: str) -> ServerSpec:
@@ -49,13 +64,24 @@ class ServerSpec:
         return cls(command=parts[0], args=parts[1:])
 
     @classmethod
-    def from_target(cls, target: str, headers: dict[str, str] | None = None) -> ServerSpec:
+    def from_target(
+        cls,
+        target: str,
+        headers: dict[str, str] | None = None,
+        env: dict[str, str] | None = None,
+        inherit_env: tuple[str, ...] = (),
+    ) -> ServerSpec:
         """Read a CLI server argument: an http(s) URL or a command line."""
         if is_url(target):
+            if env or inherit_env:
+                raise ValueError("--env applies only to server commands, not URLs")
             return cls(url=target.strip(), headers=dict(headers or {}))
         if headers:
             raise ValueError("headers apply only to http(s) server URLs")
-        return cls.from_command_line(target)
+        spec = cls.from_command_line(target)
+        spec.env = dict(env) if env else None
+        spec.inherit_env = tuple(inherit_env)
+        return spec
 
 
 def is_url(value: str) -> bool:
@@ -170,7 +196,7 @@ async def connect(
     params = StdioServerParameters(
         command=spec.command,
         args=spec.args,
-        env=spec.env,
+        env=spec.child_env(),
         cwd=spec.cwd,
     )
     log_context = nullcontext(sys.stderr) if show_server_logs else open(os.devnull, "w", encoding="utf-8")

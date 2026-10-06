@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -92,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         help='server command such as "python server.py", or an http(s) URL',
     )
     _add_header_option(check_parser)
+    _add_env_option(check_parser)
     check_parser.add_argument(
         "--probe-invalid-args",
         action="store_true",
@@ -126,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         help='server command such as "python server.py", or an http(s) URL',
     )
     _add_header_option(init_parser)
+    _add_env_option(init_parser)
     init_parser.add_argument(
         "--output",
         metavar="PATH",
@@ -326,6 +329,8 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(f"wrote {len(tools)} {'case' if len(tools) == 1 else 'cases'} to {output}")
     for name, variable in header_variables(spec).items():
         print(f"header {name} reads ${{{variable}}}; set it before running the suite")
+    for name in spec.env or {}:
+        print(f"env {name} reads ${{{name}}}; set it before running the suite")
     print(f"next: replace the placeholders, then run `mcp-rig run {output}`")
     return EXIT_OK
 
@@ -397,7 +402,8 @@ async def _check(
 
 def _server_from_args(args: argparse.Namespace) -> ServerSpec | None:
     try:
-        return ServerSpec.from_target(args.server, _parse_headers(args.headers))
+        env, inherit_env = _parse_env(args.env)
+        return ServerSpec.from_target(args.server, _parse_headers(args.headers), env, inherit_env)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return None
@@ -412,6 +418,32 @@ def _add_header_option(parser: argparse.ArgumentParser) -> None:
         metavar="NAME:VALUE",
         help="HTTP header for a URL server, for example 'Authorization: Bearer $TOKEN'; repeatable",
     )
+
+
+def _add_env_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--env",
+        dest="env",
+        action="append",
+        default=[],
+        metavar="NAME[=VALUE]",
+        help="environment variable for a server command; NAME alone copies it from this shell; repeatable",
+    )
+
+
+def _parse_env(values: list[str]) -> tuple[dict[str, str], tuple[str, ...]]:
+    """Split --env options into explicit values and names to copy from the current environment."""
+    env: dict[str, str] = {}
+    inherited: list[str] = []
+    for value in values:
+        name, separator, content = value.partition("=")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise ValueError(f"invalid --env {value!r}; expected NAME or NAME=VALUE")
+        if separator:
+            env[name] = content
+        elif name not in inherited:
+            inherited.append(name)
+    return env, tuple(inherited)
 
 
 def _parse_headers(values: list[str]) -> dict[str, str]:

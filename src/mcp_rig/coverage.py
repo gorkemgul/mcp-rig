@@ -85,6 +85,7 @@ def group_suites(suites: Sequence[Suite]) -> list[tuple[ServerSpec, list[Suite]]
             server.url,
             tuple(sorted(server.headers.items())),
             server.transport,
+            server.inherit_env,
         )
         groups.setdefault(key, (server, []))[1].append(suite)
     return list(groups.values())
