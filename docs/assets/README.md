@@ -20,14 +20,14 @@ python scripts/render_readme_assets.py
 The renderer uses the checkout's `.venv/bin/python` for CLI commands when available,
 otherwise its own interpreter. It uses Menlo and Arial on macOS, or DejaVu Sans
 and DejaVu Sans Mono on Linux. All demo commands must succeed. The demo checks that
-`init` generated eight cases and that the suite has three passing tests. It writes
-the generated `suite.yaml` to the repository root and removes it afterwards. The
-remote scene serves the fixture over Streamable HTTP on port 8765, which must be
-free.
+`init` generated eight cases, that the fault suite has two passing tests, and that
+coverage ends with its total. It writes the generated `suite.yaml` to the
+repository root and removes it afterwards.
 
 | Version | Banner | Terminal demo | Poster | Demo shows |
 | --- | --- | --- | --- | --- |
-| 0.3.0 (current) | `banner-v0.3.0.png` | `cli-demo-v0.3.0.gif` | `cli-demo-poster-v0.3.0.png` | `init`, a suite run, and `check` against a remote HTTP server |
+| 0.4.0 (current) | `banner-v0.4.0.png` | `cli-demo-v0.4.0.gif` | `cli-demo-poster-v0.4.0.png` | `init`, `fault` with retries, and `coverage` |
+| 0.3.0 | `banner-v0.3.0.png` | `cli-demo-v0.3.0.gif` | `cli-demo-poster-v0.3.0.png` | `init`, a suite run, and `check` against a remote HTTP server |
 | 0.1.1 | `banner-v0.1.1.png` | `cli-demo-v0.1.1.gif` | `cli-demo-poster-v0.1.1.png` | A suite run, tag selection, and JUnit export |
 
 The banner has transparent rounded corners. The poster is the demo's last frame,

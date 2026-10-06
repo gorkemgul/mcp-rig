@@ -11,7 +11,6 @@ import os
 import subprocess
 import sys
 import tomllib
-from contextlib import contextmanager
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -22,7 +21,8 @@ VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["versi
 BANNER = f"banner-v{VERSION}.png"
 DEMO = f"cli-demo-v{VERSION}.gif"
 POSTER = f"cli-demo-poster-v{VERSION}.png"
-DEMO_PORT = 8765
+FAULT_SUITE = "examples/feature-tour/state-and-retries.yaml"
+COVERAGE_SUITES = ["examples/fixture.yaml", FAULT_SUITE]
 WHITE = "#f5f5fa"
 MUTED = "#a8a9c0"
 CYAN = "#91e4ef"
@@ -56,13 +56,13 @@ def banner() -> None:
     d.rounded_rectangle((1, 1, width - 2, height - 2), radius=16, outline="#2e2e37", width=1)
     d.text((64, 61), "MCP Rig", font=font(78, bold=True), fill=WHITE)
     d.text((68, 166), "Test your MCP servers.", font=font(30), fill=WHITE)
-    d.text((68, 218), "YAML suites. Local and remote servers. Ready for CI.",
+    d.text((68, 218), "YAML suites. Lost responses on purpose. Untested tools found.",
            font=font(22), fill=MUTED)
     # Three compact examples keep the workflow concrete and easy to scan.
     for x, title, lines in [
         (780, "YAML suite", ["call: add", "args:", "  a: 2", "  b: 3"]),
         (1040, "MCP server", ["stdio · HTTP", "tools/call", "add(2, 3)", "→ 5"]),
-        (1300, "Test results", ["✓ 3 passed", "0 failed", "0 errors", "JUnit XML"]),
+        (1300, "Test results", ["✓ 3 passed", "0 failed", "1 fault retried", "8/8 tools"]),
     ]:
         d.text((x, 88), title, font=font(19), fill=WHITE)
         d.rounded_rectangle((x, 123, x + 220, 267), radius=8,
@@ -83,22 +83,6 @@ def banner() -> None:
 def interpreter() -> str:
     python = ROOT / ".venv" / "bin" / "python"
     return str(python) if python.exists() else sys.executable
-
-
-@contextmanager
-def remote_fixture():
-    """Serve the fixture tools over Streamable HTTP on the demo's fixed port."""
-    process = subprocess.Popen(
-        [interpreter(), "tests/fixtures/http_server.py", "streamable-http", str(DEMO_PORT)],
-        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-    )
-    try:
-        if not process.stdout.readline().startswith("PORT "):
-            raise RuntimeError(f"The HTTP fixture could not listen on port {DEMO_PORT}.")
-        yield f"http://127.0.0.1:{DEMO_PORT}/mcp"
-    finally:
-        process.terminate()
-        process.wait(timeout=10)
 
 
 def capture(command: list[str]) -> list[str]:
@@ -131,7 +115,7 @@ def terminal_frame(command: str, lines: list[str], step: str, cursor: bool = Fal
         d.rectangle((x + 2, 148, x + 13, 171), fill=CYAN)
     for i, line in enumerate(lines):
         color = CYAN if line.startswith("✓") or "passed," in line else MUTED
-        if line.startswith("Selection:"):
+        if line.strip().startswith(("fault injected", "Total:")):
             color = PURPLE
         d.text((40, 197 + 31 * i), line, font=font(22, mono=True), fill=color)
     d.line((40, 576, 1400, 576), fill="#302e40", width=1)
@@ -151,15 +135,18 @@ def terminal_demo() -> None:
             raise RuntimeError("The demo's init step must generate one case per fixture tool.")
     finally:
         suite_path.unlink(missing_ok=True)
-    suite = capture(["run", "examples/fixture.yaml"])
-    if "3 passed, 0 failed" not in suite[-1]:
-        raise RuntimeError("The demo suite must report three passing tests.")
-    with remote_fixture() as url:
-        remote = capture(["check", url, "--ignore", "param-no-description"])
+    faults = capture(["run", FAULT_SUITE])
+    if "2 passed, 0 failed" not in faults[-1]:
+        raise RuntimeError("The fault suite must report two passing tests.")
+    coverage = capture(["coverage", *COVERAGE_SUITES])
+    if not coverage[-1].startswith("Total:"):
+        raise RuntimeError("The coverage scene must end with its total.")
+    # The title repeats the command; dropping it keeps the total above the footer.
+    coverage = coverage[2:] if coverage[:2] == ["MCP Rig coverage", ""] else coverage
     scenes = [
         ("01 / GENERATE A SUITE", init_command, generated),
-        ("02 / RUN A SUITE", "mcp-rig run examples/fixture.yaml", suite),
-        ("03 / CHECK A REMOTE SERVER", f"mcp-rig check {url} --ignore param-no-description", remote),
+        ("02 / LOSE A RESPONSE ON PURPOSE", f"mcp-rig run {FAULT_SUITE}", faults),
+        ("03 / FIND UNTESTED TOOLS", "mcp-rig coverage " + " ".join(COVERAGE_SUITES), coverage),
     ]
     frames, durations = [], []
     for step, command, output in scenes:

@@ -1,4 +1,4 @@
-![MCP Rig — Test your MCP servers. YAML suites for local and remote MCP servers produce verified test results.](docs/assets/banner-v0.3.0.png)
+![MCP Rig — Test your MCP servers. YAML suites that lose responses on purpose and find untested tools.](docs/assets/banner-v0.4.0.png)
 
 [![CI](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-b8a0ff)](https://github.com/gorkemgul/mcp-rig/blob/main/LICENSE)
@@ -54,7 +54,7 @@ tool. Replace its placeholder arguments with real ones, add expectations, and
 commit the suite. Then add one step to your workflow:
 
 ```yaml
-- uses: gorkemgul/mcp-rig@v0.3.0
+- uses: gorkemgul/mcp-rig@v0.4.0
   with:
     suites: tests/mcp/
     junit: mcp-rig-results.xml
@@ -62,20 +62,19 @@ commit the suite. Then add one step to your workflow:
 
 ## CLI in action
 
-Generate a suite from a server's tools, run a suite, and check a remote server
-over HTTP:
+Generate a suite from a server's tools, lose a response on purpose and retry,
+and find the tools no suite calls:
 
-![Terminal demo of MCP Rig generating eight cases with init, running a suite with three passing tests, and checking a remote server over HTTP.](docs/assets/cli-demo-v0.3.0.gif)
+![Terminal demo of MCP Rig generating eight cases with init, injecting a disconnect and a dropped response into two retried calls, and reporting tool coverage for two servers.](docs/assets/cli-demo-v0.4.0.gif)
 
-The demo uses the repository's fixture server, locally and over Streamable
-HTTP. Try it from a development checkout after completing the
+The demo uses the repository's fixture and ledger servers. Try it from a
+development checkout after completing the
 [development setup](#development-setup):
 
 ```bash
 mcp-rig init "python tests/fixtures/fixture_server.py" --output suite.yaml
-mcp-rig run examples/fixture.yaml
-python tests/fixtures/http_server.py streamable-http 8765 &
-mcp-rig check http://127.0.0.1:8765/mcp --ignore param-no-description
+mcp-rig run examples/feature-tour/state-and-retries.yaml
+mcp-rig coverage examples/fixture.yaml examples/feature-tour/state-and-retries.yaml
 ```
 
 ## Installation
@@ -556,7 +555,7 @@ threshold. Configuration errors and servers that cannot be reached exit with
 Add one step after your server's dependencies are installed:
 
 ```yaml
-- uses: gorkemgul/mcp-rig@v0.3.0
+- uses: gorkemgul/mcp-rig@v0.4.0
   with:
     suites: tests/mcp/
     junit: mcp-rig-results.xml

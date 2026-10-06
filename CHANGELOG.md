@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- `mcp-rig coverage` lists the tools each server advertises that no suite
+  calls, with `--min PERCENT` to fail CI below a threshold and `--json` for
+  machine-readable output. It only lists tools and never calls one.
+  ([#33](https://github.com/gorkemgul/mcp-rig/issues/33))
+- A case can set `fault: drop_response` or `fault: disconnect` to lose its
+  call's response after the server has handled it, without modifying the
+  server. Only the first attempt is faulted, so `retry` and `verify` show
+  whether a retry repeats the side effect. Reports and JUnit name the
+  injected fault. ([#32](https://github.com/gorkemgul/mcp-rig/issues/32))
+
+### Changed
+
+- The README artwork shows `init`, fault injection, and `coverage`.
+
 ## 0.3.0
 
 ### Added
