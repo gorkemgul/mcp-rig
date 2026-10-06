@@ -213,3 +213,62 @@ async def test_after_timeout_continue_still_stops_after_a_transport_error(monkey
     result = await run_suite(suite)
 
     assert [item.status for item in result.results] == [CaseStatus.ERROR, CaseStatus.SKIPPED]
+
+
+@pytest.mark.anyio
+async def test_rerun_setup_restores_state_on_the_new_connection_before_the_retry(monkeypatch, tmp_path):
+    server = ScriptedServer({"create": [CLOSED, "created"]})
+    server.install(monkeypatch)
+    case = Case("creates", "create", retry_attempts=1, retry_rerun_setup=True)
+
+    result = await run_suite(make_suite(tmp_path, [case], setup=(Step("reset"),)))
+
+    assert result.results[0].status is CaseStatus.PASSED
+    assert server.calls == [(1, "reset"), (1, "create"), (2, "reset"), (2, "create")]
+
+
+@pytest.mark.anyio
+async def test_rerun_setup_is_skipped_after_a_timeout_because_the_session_survives(monkeypatch, tmp_path):
+    server = ScriptedServer({"create": [TIMEOUT, "created"]})
+    server.install(monkeypatch)
+    case = Case("creates", "create", retry_attempts=1, retry_rerun_setup=True)
+
+    await run_suite(make_suite(tmp_path, [case], setup=(Step("reset"),)))
+
+    assert server.calls == [(1, "reset"), (1, "create"), (1, "create")]
+
+
+@pytest.mark.anyio
+async def test_failed_setup_rerun_makes_the_case_an_error(monkeypatch, tmp_path):
+    server = ScriptedServer({"create": [CLOSED, "created"], "reset": ["ok", "refused"]})
+    server.install(monkeypatch)
+    case = Case("creates", "create", retry_attempts=1, retry_rerun_setup=True)
+    setup = (Step("reset", expect={"contains": "ok"}),)
+
+    result = await run_suite(make_suite(tmp_path, [case, Case("later", "echo")], setup=setup))
+
+    item = result.results[0]
+    assert [r.status for r in result.results] == [CaseStatus.ERROR, CaseStatus.SKIPPED]
+    assert item.error.category is ErrorCategory.SETUP
+    assert item.error.message == "setup (after reconnect): setup[0] reset: contains: 'ok' not found in 'refused'"
+    assert [name for _, name in server.calls] == ["reset", "create", "reset"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("suite_setting", "case_setting", "expected"),
+    [
+        ("stop", "continue", [CaseStatus.ERROR, CaseStatus.PASSED]),
+        ("continue", "stop", [CaseStatus.ERROR, CaseStatus.SKIPPED]),
+        ("continue", None, [CaseStatus.ERROR, CaseStatus.PASSED]),
+    ],
+)
+async def test_case_after_timeout_overrides_the_suite_setting(
+    monkeypatch, tmp_path, suite_setting, case_setting, expected
+):
+    ScriptedServer({"slow": [TIMEOUT]}).install(monkeypatch)
+    cases = [Case("slow", "slow", after_timeout=case_setting), Case("later", "echo")]
+
+    result = await run_suite(make_suite(tmp_path, cases, after_timeout=suite_setting))
+
+    assert [item.status for item in result.results] == expected

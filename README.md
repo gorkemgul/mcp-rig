@@ -299,7 +299,9 @@ JSON. Each case may set a positive, finite `timeout_s`; the default is 30
 seconds. A timeout is an infrastructure error, aborts further calls on the
 shared session, and marks later cases as skipped. Set `after_timeout: continue`
 at the top of a suite to keep running later cases on the same session after a
-timeout. A closed connection still stops the suite.
+timeout. A case can override the suite setting with its own `after_timeout`, for
+example to let one known-slow case time out without stopping the suite. A
+closed connection still stops the suite.
 
 Terminal and JUnit reports distinguish four states:
 
@@ -355,9 +357,12 @@ MCP Rig does not retry calls by default. `retry.attempts` lets a case repeat its
 identical call after an infrastructure error. Assertion failures and tool
 errors are never retried. After a timeout the retry reuses the session; after a
 closed connection MCP Rig first starts a fresh server process, so only state
-kept outside that process survives. Terminal output lists each failed attempt,
-and JUnit records `mcp-rig.attempts` and `mcp-rig.retried.N` testcase
-properties.
+kept outside that process survives. Add `rerun_setup: true` to `retry` to run
+the suite's `setup` steps again on the new connection before the retried call.
+This option requires setup steps and has no effect after a timeout. If setup
+fails during the re-run, the case is an error. Terminal output lists each
+failed attempt, and JUnit records `mcp-rig.attempts` and `mcp-rig.retried.N`
+testcase properties.
 
 Retries matter for tools with side effects. A tool can commit and then lose its
 response, and the retry's JSON can pass `schema`, `json_path`, and `snapshot`

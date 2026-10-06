@@ -142,9 +142,9 @@ async def run_suite(
             results = _skipped_cases(suite.cases, "suite setup failed")
         else:
             for index, case in enumerate(suite.cases):
-                result = await _run_case(session, case, snapshots=snapshots)
+                result = await _run_case(session, case, snapshots=snapshots, setup=suite.setup)
                 results.append(result)
-                if result.status is CaseStatus.ERROR and not _continues_after(suite, result):
+                if result.status is CaseStatus.ERROR and not _continues_after(suite, case, result):
                     reason = f"not run after infrastructure error in '{case.name}'"
                     results.extend(_skipped_cases(suite.cases[index + 1 :], reason))
                     break
@@ -160,9 +160,10 @@ async def run_suite(
     return SuiteResult(results, suite_error=suite_error)
 
 
-def _continues_after(suite: Suite, result: CaseResult) -> bool:
+def _continues_after(suite: Suite, case: Case, result: CaseResult) -> bool:
     assert result.error is not None
-    return suite.after_timeout == "continue" and result.error.category is ErrorCategory.TIMEOUT
+    after_timeout = case.after_timeout or suite.after_timeout
+    return after_timeout == "continue" and result.error.category is ErrorCategory.TIMEOUT
 
 
 async def _run_steps(
@@ -187,6 +188,7 @@ async def _run_case(
     session: _Session,
     case: Case,
     snapshots: SnapshotSession | None = None,
+    setup: tuple[Step, ...] = (),
 ) -> CaseResult:
     started = time.perf_counter()
     retried: list[InfrastructureError] = []
@@ -199,6 +201,15 @@ async def _run_case(
             if len(retried) >= case.retry_attempts:
                 return _error_result(case, started, error, retried)
             retried.append(error)
+            if case.retry_rerun_setup and session.broken:
+                setup_error = await _run_steps(session, setup, ErrorCategory.SETUP)
+                if setup_error is not None:
+                    located = InfrastructureError(
+                        setup_error.category,
+                        setup_error.exception_type,
+                        f"setup (after reconnect): {setup_error.message}",
+                    )
+                    return _error_result(case, started, located, retried)
 
     failures = check(case.expect, outcome)
     if snapshots is not None and case.expect.get("snapshot") is True:

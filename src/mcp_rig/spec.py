@@ -58,6 +58,8 @@ class Case:
     tags: frozenset[str] = field(default_factory=frozenset)
     verify: tuple[Step, ...] = ()
     retry_attempts: int = 0
+    retry_rerun_setup: bool = False
+    after_timeout: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +98,10 @@ def load_suite(path: str | Path) -> Suite:
     after_timeout = data.get("after_timeout", "stop")
     if after_timeout not in AFTER_TIMEOUT_CHOICES:
         raise SpecError(f"{suite_path}: 'after_timeout' must be one of: {', '.join(AFTER_TIMEOUT_CHOICES)}")
+    if not setup:
+        rerun = next((case.name for case in cases if case.retry_rerun_setup), None)
+        if rerun is not None:
+            raise SpecError(f"{suite_path}: case {rerun!r} sets 'retry.rerun_setup' but the suite has no setup steps")
     return Suite(
         path=suite_path,
         server=server,
@@ -164,7 +170,10 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
     label = f"{where} ({name})"
     args, expect, timeout_s = _parse_call_fields(raw, label, allow_snapshot=True)
     verify = _parse_steps(raw.get("verify", _MISSING), f"{label}: verify")
-    retry_attempts = _parse_retry(raw.get("retry", _MISSING), label)
+    retry_attempts, retry_rerun_setup = _parse_retry(raw.get("retry", _MISSING), label)
+    after_timeout = raw.get("after_timeout")
+    if after_timeout is not None and after_timeout not in AFTER_TIMEOUT_CHOICES:
+        raise SpecError(f"{label}: 'after_timeout' must be one of: {', '.join(AFTER_TIMEOUT_CHOICES)}")
     tags = _parse_tags(raw.get("tags", _MISSING), label)
     return Case(
         name=name,
@@ -175,6 +184,8 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
         tags=tags,
         verify=verify,
         retry_attempts=retry_attempts,
+        retry_rerun_setup=retry_rerun_setup,
+        after_timeout=after_timeout,
     )
 
 
@@ -199,15 +210,18 @@ def _parse_steps(raw: Any, where: str) -> tuple[Step, ...]:
     return tuple(steps)
 
 
-def _parse_retry(raw: Any, where: str) -> int:
+def _parse_retry(raw: Any, where: str) -> tuple[int, bool]:
     if raw is _MISSING:
-        return 0
-    if not isinstance(raw, dict) or set(raw) != {"attempts"}:
-        raise SpecError(f"{where}: 'retry' must be a mapping with only 'attempts'")
+        return 0, False
+    if not isinstance(raw, dict) or "attempts" not in raw or set(raw) - {"attempts", "rerun_setup"}:
+        raise SpecError(f"{where}: 'retry' must be a mapping with 'attempts' and optional 'rerun_setup'")
     attempts = raw["attempts"]
     if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
         raise SpecError(f"{where}: 'retry.attempts' must be a positive integer")
-    return attempts
+    rerun_setup = raw.get("rerun_setup", False)
+    if not isinstance(rerun_setup, bool):
+        raise SpecError(f"{where}: 'retry.rerun_setup' must be a boolean")
+    return attempts, rerun_setup
 
 
 def _parse_call_fields(raw: dict[str, Any], label: str, allow_snapshot: bool) -> tuple[dict, dict, float]:

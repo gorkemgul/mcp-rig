@@ -442,13 +442,14 @@ def test_supporting_steps_and_retry_default_to_off(tmp_path):
 
 
 CASE_PREFIX = "server: python server.py\ntests:\n  - name: a\n    call: add\n"
+RETRY_SHAPE = "'retry' must be a mapping with 'attempts' and optional 'rerun_setup'"
 
 
 @pytest.mark.parametrize(
     ("body", "message"),
     [
-        (CASE_PREFIX + "    retry: 1\n", "'retry' must be a mapping with only 'attempts'"),
-        (CASE_PREFIX + "    retry: {attempts: 1, delay: 2}\n", "'retry' must be a mapping with only 'attempts'"),
+        (CASE_PREFIX + "    retry: 1\n", RETRY_SHAPE),
+        (CASE_PREFIX + "    retry: {attempts: 1, delay: 2}\n", RETRY_SHAPE),
         (CASE_PREFIX + "    retry: {attempts: 0}\n", "'retry.attempts' must be a positive integer"),
         (CASE_PREFIX + "    retry: {attempts: true}\n", "'retry.attempts' must be a positive integer"),
         (CASE_PREFIX + "    verify: []\n", "(a): verify must be a non-empty list"),
@@ -464,5 +465,41 @@ CASE_PREFIX = "server: python server.py\ntests:\n  - name: a\n    call: add\n"
     ],
 )
 def test_rejects_invalid_supporting_steps_and_retry(tmp_path, body, message):
+    with pytest.raises(SpecError, match=re.escape(message)):
+        load_suite(write_suite(tmp_path, body))
+
+
+def test_loads_rerun_setup_and_case_after_timeout(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+setup:
+  - call: reset
+tests:
+  - name: a
+    call: create
+    retry: {attempts: 1, rerun_setup: true}
+    after_timeout: continue
+  - {name: b, call: echo}
+""",
+        )
+    )
+
+    first, second = suite.cases
+    assert (first.retry_attempts, first.retry_rerun_setup, first.after_timeout) == (1, True, "continue")
+    assert (second.retry_rerun_setup, second.after_timeout) == (False, None)
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (CASE_PREFIX + "    retry: {attempts: 1, rerun_setup: yes please}\n", "'retry.rerun_setup' must be a boolean"),
+        (CASE_PREFIX + "    retry: {attempts: 1, rerun_setup: true}\n", "but the suite has no setup"),
+        (CASE_PREFIX + "    after_timeout: retry\n", "(a): 'after_timeout' must be one of: stop, continue"),
+    ],
+)
+def test_rejects_invalid_rerun_setup_and_case_after_timeout(tmp_path, body, message):
     with pytest.raises(SpecError, match=re.escape(message)):
         load_suite(write_suite(tmp_path, body))
