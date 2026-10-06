@@ -29,11 +29,14 @@ def http_server(tmp_path):
 
     processes = []
 
-    def start(transport: str = "streamable-http", token: str | None = None) -> str:
+    def start(transport: str = "streamable-http", token: str | None = None, era: str | None = None) -> str:
         env = {**os.environ}
         env.pop("MCP_RIG_REQUIRED_TOKEN", None)
+        env.pop("MCP_RIG_FIXTURE_ERA", None)
         if token is not None:
             env["MCP_RIG_REQUIRED_TOKEN"] = token
+        if era is not None:
+            env["MCP_RIG_FIXTURE_ERA"] = era
         process = subprocess.Popen(
             [sys.executable, str(Path(__file__).parent / "fixtures" / "http_server.py"), transport],
             stdout=subprocess.PIPE,

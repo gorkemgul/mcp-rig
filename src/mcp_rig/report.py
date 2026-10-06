@@ -135,9 +135,10 @@ def render_check(
     warnings: list[LintWarning],
     color: bool = False,
     ignored: int = 0,
+    protocol_version: str | None = None,
 ) -> str:
     """Render protocol checks and tool-definition warnings for a human."""
-    lines = ["Protocol checks"]
+    lines = [f"Protocol checks (MCP {protocol_version})" if protocol_version else "Protocol checks"]
     for check in checks:
         mark = _paint("✓", GREEN, color) if check.passed else _paint("✗", RED, color)
         lines.append(f"  {mark} {check.name}")

@@ -103,6 +103,7 @@ def test_feature_tour_snapshot_update_command_writes_a_fresh_baseline(
     shutil.copytree(FEATURE_TOUR, copied_tour)
     copied_fixture.parent.mkdir(parents=True)
     shutil.copy2(ROOT / "tests" / "fixtures" / "fixture_server.py", copied_fixture)
+    shutil.copy2(ROOT / "tests" / "fixtures" / "eras.py", copied_fixture.parent)
     sidecar = copied_tour / "snapshots.snap.yaml"
     sidecar.unlink()
 

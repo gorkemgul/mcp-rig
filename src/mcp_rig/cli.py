@@ -266,7 +266,7 @@ def _cmd_check(args: argparse.Namespace, color: bool) -> int:
     if spec is None:
         return EXIT_USAGE
     try:
-        checks, warnings = anyio.run(
+        checks, warnings, protocol_version = anyio.run(
             _check,
             spec,
             args.probe_invalid_args,
@@ -279,7 +279,15 @@ def _cmd_check(args: argparse.Namespace, color: bool) -> int:
         return EXIT_USAGE
 
     filtered = filter_warnings(warnings, args.ignore_patterns)
-    print(render_check(checks, filtered.kept, color=color, ignored=filtered.ignored))
+    print(
+        render_check(
+            checks,
+            filtered.kept,
+            color=color,
+            ignored=filtered.ignored,
+            protocol_version=protocol_version,
+        )
+    )
     for pattern in filtered.unused_patterns:
         print(f"warning: --ignore {pattern} matched no lint warning", file=sys.stderr)
     failed = not all(check.passed for check in checks) or (
@@ -376,14 +384,15 @@ async def _check(
     spec: ServerSpec,
     probe_invalid_args: bool,
     show_server_logs: bool,
-) -> tuple[list[CheckResult], list[LintWarning]]:
+) -> tuple[list[CheckResult], list[LintWarning], str]:
     async with connect(spec, show_server_logs=show_server_logs) as probe:
         tools = await probe.list_tools()
         checks = await run_protocol_checks(
             probe,
             probe_invalid_args=probe_invalid_args,
         )
-    return checks, lint_tools(tools)
+        protocol_version = probe.protocol_version
+    return checks, lint_tools(tools), protocol_version
 
 
 def _server_from_args(args: argparse.Namespace) -> ServerSpec | None:

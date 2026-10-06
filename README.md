@@ -468,6 +468,13 @@ about missing or short descriptions, invalid input schemas, undocumented
 parameters, and tool descriptions that are likely to be confused with each
 other.
 
+The first line names the protocol version the server negotiated, for example
+`Protocol checks (MCP 2025-11-25)`. MCP Rig works with servers on either side
+of the 2026-07-28 revision: it first asks the server with `server/discover`,
+and falls back to the `initialize` handshake when the server does not know
+that method. Every command, including faults, retries, and timeouts, is tested
+against servers that speak only one of the two.
+
 The `retry-unsafe` warning flags tools that look side-effecting, such as
 `create_record`, `send_email`, or a tool annotated `readOnlyHint: false`, but
 declare neither `idempotentHint: true` nor an idempotency-key parameter such as

@@ -977,6 +977,8 @@ def test_check_handles_valid_boolean_property_schema(
     expected_code,
 ):
     class BooleanSchemaProbe:
+        protocol_version = "2025-11-25"
+
         async def list_tools(self):
             return [
                 ToolInfo(

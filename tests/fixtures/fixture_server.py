@@ -63,4 +63,7 @@ def undocumented(value: str) -> str:
 
 
 if __name__ == "__main__":
+    from eras import requested_era, restrict_streams
+
+    restrict_streams(server, requested_era())
     server.run()

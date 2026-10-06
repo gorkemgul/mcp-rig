@@ -6,6 +6,7 @@ The port defaults to an ephemeral one. Prints ``PORT <number>`` once the socket
 accepts connections. When
 ``MCP_RIG_REQUIRED_TOKEN`` is set, every HTTP request must carry
 ``Authorization: Bearer <token>`` or it is rejected with 401.
+``MCP_RIG_FIXTURE_ERA`` restricts the server to one protocol era; see ``eras.py``.
 """
 
 import asyncio
@@ -14,12 +15,18 @@ import socket
 import sys
 
 import uvicorn
+from eras import requested_era, restrict_http, restrict_streams
 from fixture_server import server
 from starlette.responses import PlainTextResponse
 
 
 def build_app(transport: str):
-    app = server.sse_app() if transport == "sse" else server.streamable_http_app()
+    era = requested_era()
+    if transport == "sse":
+        restrict_streams(server, era)
+        app = server.sse_app()
+    else:
+        app = restrict_http(server.streamable_http_app(), era)
     token = os.environ.get("MCP_RIG_REQUIRED_TOKEN")
     if not token:
         return app

@@ -382,6 +382,12 @@ def test_render_check_shows_empty_lint_section_and_plural_summary():
     )
 
 
+def test_render_check_names_the_negotiated_protocol_version():
+    text = render_check([CheckResult("lists tools", True)], [], protocol_version="2025-11-25")
+
+    assert text.splitlines()[0] == "Protocol checks (MCP 2025-11-25)"
+
+
 def test_render_check_color_wraps_only_status_symbols():
     text = render_check(
         [

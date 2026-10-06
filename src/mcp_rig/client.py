@@ -94,6 +94,11 @@ class Probe:
     def __init__(self, client: Client):
         self._client = client
 
+    @property
+    def protocol_version(self) -> str:
+        """The MCP protocol version negotiated with the server."""
+        return self._client.protocol_version
+
     async def list_tools(self) -> list[ToolInfo]:
         tools: list[ToolInfo] = []
         cursor: str | None = None
