@@ -151,10 +151,18 @@ def render_coverage(results: Sequence[ServerCoverage]) -> str:
         if item.unknown:
             lines.append(f"  not advertised by the server: {', '.join(item.unknown)}")
     measured = [item for item in results if item.error is None]
+    unreachable = len(results) - len(measured)
+    lines.append("")
+    if results and not measured:
+        lines.append("Total: unavailable; no server could list its tools")
+        return "\n".join(lines)
     covered = sum(len(item.covered) for item in measured)
     total = sum(len(item.tools) for item in measured)
     percent = 100.0 if not total else 100.0 * covered / total
-    lines.extend(["", f"Total: {covered}/{total} tools covered ({percent:.0f}%)"])
+    summary = f"Total: {covered}/{total} tools covered ({percent:.0f}%)"
+    if unreachable:
+        summary += f"; {unreachable} {'server' if unreachable == 1 else 'servers'} could not list tools"
+    lines.append(summary)
     return "\n".join(lines)
 
 

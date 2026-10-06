@@ -96,7 +96,14 @@ def test_render_coverage_lists_gaps_and_a_total():
     assert "  missing: echo" in text
     assert "  not advertised by the server: typo" in text
     assert "  ! could not list tools: OSError: refused" in text
-    assert text.endswith("Total: 1/2 tools covered (50%)")
+    assert text.endswith("Total: 1/2 tools covered (50%); 1 server could not list tools")
+
+
+def test_render_coverage_has_no_total_when_no_server_was_reachable():
+    text = render_coverage([ServerCoverage("down", [Path("b.yaml")], error="OSError: refused")])
+
+    assert text.endswith("Total: unavailable; no server could list its tools")
+    assert "100%" not in text
 
 
 def write_suite(tmp_path, name, calls):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import sys
@@ -17,11 +18,16 @@ from mcp import Client, MCPError
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, TextContent
+from mcp.types import CONNECTION_CLOSED, METHOD_NOT_FOUND, REQUEST_TIMEOUT, TextContent
 
 from mcp_rig.faults import FaultInjector, inject_faults
 
 TRANSPORTS = ("streamable-http", "sse")
+STDIO_LOGGER = "mcp.client.stdio"
+
+
+class ServerStartError(ConnectionError):
+    """A local server command could not start, or what started does not speak MCP."""
 HTTP_TIMEOUT = httpx2.Timeout(30.0, read=300.0)
 
 
@@ -175,9 +181,57 @@ async def connect(
     )
     log_context = nullcontext(sys.stderr) if show_server_logs else open(os.devnull, "w", encoding="utf-8")
     with log_context as errlog:
-        transport = _with_faults(stdio_client(params, errlog=errlog), faults)
-        async with Client(transport) as client:
+        async with AsyncExitStack() as stack:
+            transport = _with_faults(stdio_client(params, errlog=errlog), faults)
+            stdout_noise = _StdoutNoise()
+            logger = logging.getLogger(STDIO_LOGGER)
+            logger.addHandler(stdout_noise)
+            try:
+                client = await stack.enter_async_context(Client(transport))
+            except Exception as exc:
+                explained = _explain_start_failure(exc, spec, stdout_noise.lines)
+                if explained is None:
+                    raise
+                raise explained from exc
+            finally:
+                logger.removeHandler(stdout_noise)
             yield Probe(client)
+
+
+class _StdoutNoise(logging.Handler):
+    """Collect the lines a server wrote to stdout that were not JSON-RPC messages."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.ERROR)
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        exc = record.exc_info[1] if record.exc_info else None
+        errors = getattr(exc, "errors", None)
+        if callable(errors):
+            for error in errors():
+                if isinstance(error.get("input"), str):
+                    self.lines.append(error["input"])
+                    return
+
+
+def _explain_start_failure(exc: BaseException, spec: ServerSpec, stdout_noise: list[str]) -> ServerStartError | None:
+    """Turn an opaque startup failure into a message that says what to fix."""
+    root = exc
+    while isinstance(root, BaseExceptionGroup) and root.exceptions:
+        root = root.exceptions[0]
+    if isinstance(root, FileNotFoundError) and root.filename in (spec.command, None):
+        return ServerStartError(f"command not found: {spec.command}")
+    if stdout_noise:
+        return ServerStartError(
+            f"the server wrote non-JSON to stdout: {stdout_noise[0][:120]!r}; "
+            "an MCP server must write only JSON-RPC messages to stdout and log to stderr"
+        )
+    if isinstance(root, MCPError) and root.code == METHOD_NOT_FOUND:
+        return ServerStartError(
+            "the command answered the MCP handshake with 'Method not found'; check that it starts an MCP server"
+        )
+    return None
 
 
 @asynccontextmanager

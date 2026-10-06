@@ -519,6 +519,12 @@ server:
 mcp-rig check "python path/to/server.py" --server-logs
 ```
 
+`--server-logs` also shows the MCP SDK's own log messages, which are hidden
+otherwise. When a local server cannot start, the error says why where it can:
+`command not found`, a command that does not speak MCP, or a server that wrote
+something other than JSON-RPC to stdout, with the first such line. A stray
+`print()` to stdout breaks the stdio transport; log to stderr instead.
+
 For `check`, exit code `0` means all protocol checks passed, `1` means a
 protocol check failed or strict lint found warnings, and `2` means the command,
 server process, connection, or teardown failed.

@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
 import anyio
 
+from mcp_rig import __version__
 from mcp_rig.batch import BatchResult, run_batch
 from mcp_rig.checks import CheckResult, run_protocol_checks
-from mcp_rig.client import ServerSpec, ToolInfo, connect, is_url
+from mcp_rig.client import ServerSpec, ServerStartError, ToolInfo, connect, is_url
 from mcp_rig.coverage import measure, render_coverage
 from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
@@ -27,6 +29,9 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
 SERVER_LOGS_HINT = "hint: the server may have exited; rerun with --server-logs to see its stderr"
+# Errors whose message already says what went wrong; server stderr would not add to it.
+EXPLAINED_ERRORS = frozenset({ServerStartError.__name__, "StepFailed"})
+_SDK_LOGS = logging.NullHandler()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="mcp-rig",
         description="Deterministic tests for MCP servers.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
     run_parser = commands.add_parser("run", help="run a YAML tool suite")
     run_parser.add_argument(
@@ -171,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    _route_sdk_logs(args.server_logs)
     color = sys.stdout.isatty()
     if args.command == "run":
         return _cmd_run(args, color=color)
@@ -237,7 +244,7 @@ def _server_may_have_exited(result: BatchResult) -> bool:
         if item.result is None or item.remote:
             continue
         error = item.result.suite_error
-        if error is not None and error.category is ErrorCategory.SETUP:
+        if error is not None and error.category is ErrorCategory.SETUP and error.exception_type not in EXPLAINED_ERRORS:
             return True
         if any(
             case.status is CaseStatus.ERROR and case.error.category is ErrorCategory.TRANSPORT
@@ -274,7 +281,7 @@ def _cmd_check(args: argparse.Namespace, color: bool) -> int:
         )
     except Exception as exc:  # noqa: BLE001 - CLI converts infrastructure errors to exit 2
         print(f"error: could not run server: {_describe(exc)}", file=sys.stderr)
-        if not args.server_logs and not is_url(args.server):
+        if not args.server_logs and not is_url(args.server) and not _explained(exc):
             print(SERVER_LOGS_HINT, file=sys.stderr)
         return EXIT_USAGE
 
@@ -308,7 +315,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         tools = anyio.run(_list_tools, spec, args.server_logs)
     except Exception as exc:  # noqa: BLE001 - CLI converts infrastructure errors to exit 2
         print(f"error: could not run server: {_describe(exc)}", file=sys.stderr)
-        if not args.server_logs and not is_url(args.server):
+        if not args.server_logs and not is_url(args.server) and not _explained(exc):
             print(SERVER_LOGS_HINT, file=sys.stderr)
         return EXIT_USAGE
     if not tools:
@@ -425,9 +432,33 @@ def _parse_headers(values: list[str]) -> dict[str, str]:
 
 
 def _describe(exc: BaseException) -> str:
+    exc = _root(exc)
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _root(exc: BaseException) -> BaseException:
     while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
         exc = exc.exceptions[0]
-    return f"{type(exc).__name__}: {exc}"
+    return exc
+
+
+def _explained(exc: BaseException) -> bool:
+    return type(_root(exc)).__name__ in EXPLAINED_ERRORS
+
+
+def _route_sdk_logs(show_server_logs: bool) -> None:
+    """Hide the MCP SDK's log records unless the user asked to see server diagnostics.
+
+    Without a handler of its own, a library's warnings and tracebacks reach the
+    terminal through Python's last-resort handler.
+    """
+    logger = logging.getLogger("mcp")
+    if show_server_logs:
+        logger.removeHandler(_SDK_LOGS)
+        logger.propagate = True
+    elif _SDK_LOGS not in logger.handlers:
+        logger.addHandler(_SDK_LOGS)
+        logger.propagate = False
 
 
 def _same_path(first: str | Path, second: str | Path) -> bool:

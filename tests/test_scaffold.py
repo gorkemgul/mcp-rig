@@ -151,8 +151,8 @@ def test_init_reports_an_unstartable_server(capsys):
     assert main(["init", "/definitely/missing/mcp-rig-server"]) == 2
 
     err = capsys.readouterr().err
-    assert "could not run server" in err
-    assert cli_module.SERVER_LOGS_HINT in err
+    assert "could not run server: ServerStartError: command not found" in err
+    assert cli_module.SERVER_LOGS_HINT not in err
 
 
 def test_init_fails_when_the_server_lists_no_tools(monkeypatch, capsys):

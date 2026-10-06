@@ -1046,9 +1046,22 @@ def test_run_omits_server_logs_hint_after_a_healthy_run(tmp_path, fixture_spec, 
     assert cli_module.SERVER_LOGS_HINT not in capsys.readouterr().err
 
 
-def test_check_unstartable_server_hints_at_server_logs(capsys):
+def test_check_reports_a_missing_command_without_the_server_logs_hint(capsys):
     assert main(["check", "/definitely/missing/mcp-rig-server"]) == 2
-    assert cli_module.SERVER_LOGS_HINT in capsys.readouterr().err
+
+    err = capsys.readouterr().err
+    assert "ServerStartError: command not found: /definitely/missing/mcp-rig-server" in err
+    assert cli_module.SERVER_LOGS_HINT not in err
+
+
+def test_check_hints_at_server_logs_when_the_server_exits(capsys):
+    command = shlex.join([sys.executable, "-c", "raise SystemExit(3)"])
+
+    assert main(["check", command]) == 2
+
+    err = capsys.readouterr().err
+    assert "MCPError: Connection closed" in err
+    assert cli_module.SERVER_LOGS_HINT in err
 
 
 def test_check_ignore_silences_warnings_for_strict_mode(fixture_spec, capsys):

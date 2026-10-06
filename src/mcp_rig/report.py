@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from mcp_rig.batch import BatchResult
 from mcp_rig.checks import CheckResult
 from mcp_rig.lint import LintWarning
@@ -11,6 +14,14 @@ GREEN = "\033[32m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
 RESET = "\033[0m"
+
+
+def _display(path: Path) -> str:
+    """Show a suite path relative to the working directory, as a user would type it."""
+    try:
+        return os.path.relpath(path)
+    except ValueError:
+        return str(path)
 
 
 def _paint(text: str, code: str, color: bool) -> str:
@@ -76,7 +87,7 @@ def render_batch(result: BatchResult, color: bool = False) -> str:
         and result.suites[0].result is not None
     ):
         item = result.suites[0]
-        rendered = render_suite(str(item.path), item.result, color=color)
+        rendered = render_suite(_display(item.path), item.result, color=color)
         if not result.selection_active and not result.snapshot_update_active:
             return rendered
         body, summary = rendered.rsplit("\n", maxsplit=1)
@@ -88,7 +99,7 @@ def render_batch(result: BatchResult, color: bool = False) -> str:
         return "\n".join([body, *detail_lines, summary])
 
     sections = [
-        render_suite(str(item.path), item.result, color=color)
+        render_suite(_display(item.path), item.result, color=color)
         for item in result.suites
         if item.result is not None
     ]
