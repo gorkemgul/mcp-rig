@@ -18,35 +18,54 @@ results, and reports in a format CI understands.
 
 ## Why MCP Rig?
 
-[MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the
-official tool for trying a server by hand: you connect, click a tool, and read
-the response. MCP Rig is for what comes next, making sure the server keeps
-behaving that way:
+A tool can pass every schema check and still be wrong. The classic case: it
+commits its side effect, the response is lost, and the client retries. When we
+pointed MCP Rig at 11 popular open-source MCP servers, that retry applied the
+action twice on four of them: a duplicate commit, a second click, a duplicate
+database row, and doubled state on a tool annotated as idempotent. Every retried
+response looked fine. Only checking the server's state showed the problem.
 
+MCP Rig tests what your tools do, deterministically, on every commit:
+
+- **State, not just responses.** `verify` steps check what a call actually
+  changed. `fault` loses a response on purpose against an unmodified server,
+  and opt-in retries show whether your tool applies its effect twice.
 - **Repeatable suites.** Cases live in YAML next to your code and run the same
-  way locally and in CI.
+  way locally and in CI. `mcp-rig init` writes the first suite from your
+  server's own tools.
 - **Focused checks.** Expected errors, text, regular expressions, JSON paths,
   JSON Schema, latency limits, and full-response snapshots.
-- **State, not just responses.** `verify` steps check what a call actually
-  changed. `fault` loses a response on purpose, and opt-in retries show whether
-  your tool applies its effect twice.
-- **CI-ready output.** JUnit XML, clear exit codes, tag and name filters, and a
-  GitHub Action.
 - **Server checks without a suite.** `mcp-rig check` probes protocol behavior
   and flags weak tool definitions, including side-effecting tools that are
-  unsafe to retry.
-- **Coverage.** `mcp-rig coverage` lists the tools no suite exercises.
+  unsafe to retry. `mcp-rig coverage` lists the tools no suite calls.
+- **Failures that say what to fix.** A server that prints to stdout, a command
+  that is not an MCP server, or a server that never answers the handshake gets
+  a named error instead of `Connection closed` or a hung CI job.
+- **CI-ready.** JUnit XML, clear exit codes, tag and name filters, and a
+  GitHub Action.
 
-MCP Rig tests the tools of local stdio servers and of remote servers over
-Streamable HTTP or SSE.
+It works with local stdio servers and remote servers over Streamable HTTP or
+SSE, on both sides of the 2026-07-28 protocol revision.
+
+### Where it fits
+
+| Tool | Answers |
+| --- | --- |
+| [MCP Inspector](https://github.com/modelcontextprotocol/inspector) | What does this server do? Explore it by hand. |
+| [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) | Does this server follow the protocol? |
+| LLM eval tools | Does a model pick the right tool? |
+| **MCP Rig** | Do my tools behave correctly, every time, including when responses are lost? |
+
+They complement each other.
 
 ## Quick start
 
+Run it without installing anything, using [uv](https://docs.astral.sh/uv/):
+
 ```bash
-pipx install mcp-rig
-mcp-rig check "python server.py"
-mcp-rig init "python server.py" --output tests/mcp/server.yaml
-mcp-rig run tests/mcp/server.yaml
+uvx mcp-rig check "python server.py"
+uvx mcp-rig init "python server.py" --output tests/mcp/server.yaml
+uvx mcp-rig run tests/mcp/server.yaml
 ```
 
 `check` gives an immediate health report. `init` writes one starter case per
@@ -54,7 +73,7 @@ tool. Replace its placeholder arguments with real ones, add expectations, and
 commit the suite. Then add one step to your workflow:
 
 ```yaml
-- uses: gorkemgul/mcp-rig@v0.4.0
+- uses: gorkemgul/mcp-rig@v0.4.1
   with:
     suites: tests/mcp/
     junit: mcp-rig-results.xml
@@ -79,10 +98,12 @@ mcp-rig coverage examples/fixture.yaml examples/feature-tour/state-and-retries.y
 
 ## Installation
 
-Install MCP Rig as an isolated command-line tool with
-[pipx](https://pipx.pypa.io/):
+Run MCP Rig on demand with [uv](https://docs.astral.sh/uv/), or install it as
+an isolated command-line tool:
 
 ```bash
+uvx mcp-rig --help
+uv tool install mcp-rig
 pipx install mcp-rig
 ```
 
@@ -618,7 +639,7 @@ threshold. Configuration errors and servers that cannot be reached exit with
 Add one step after your server's dependencies are installed:
 
 ```yaml
-- uses: gorkemgul/mcp-rig@v0.4.0
+- uses: gorkemgul/mcp-rig@v0.4.1
   with:
     suites: tests/mcp/
     junit: mcp-rig-results.xml

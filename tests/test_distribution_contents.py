@@ -13,19 +13,19 @@ SCRIPT = ROOT / "scripts" / "check_distribution_contents.py"
 
 WHEEL_MEMBERS = (
     "mcp_rig/__init__.py",
-    "mcp_rig-0.4.0.dist-info/METADATA",
-    "mcp_rig-0.4.0.dist-info/WHEEL",
-    "mcp_rig-0.4.0.dist-info/entry_points.txt",
-    "mcp_rig-0.4.0.dist-info/licenses/LICENSE",
-    "mcp_rig-0.4.0.dist-info/RECORD",
+    "mcp_rig-0.4.1.dist-info/METADATA",
+    "mcp_rig-0.4.1.dist-info/WHEEL",
+    "mcp_rig-0.4.1.dist-info/entry_points.txt",
+    "mcp_rig-0.4.1.dist-info/licenses/LICENSE",
+    "mcp_rig-0.4.1.dist-info/RECORD",
 )
 
 SDIST_MEMBERS = (
-    "mcp_rig-0.4.0/LICENSE",
-    "mcp_rig-0.4.0/PKG-INFO",
-    "mcp_rig-0.4.0/README.md",
-    "mcp_rig-0.4.0/pyproject.toml",
-    "mcp_rig-0.4.0/src/mcp_rig/__init__.py",
+    "mcp_rig-0.4.1/LICENSE",
+    "mcp_rig-0.4.1/PKG-INFO",
+    "mcp_rig-0.4.1/README.md",
+    "mcp_rig-0.4.1/pyproject.toml",
+    "mcp_rig-0.4.1/src/mcp_rig/__init__.py",
 )
 
 
@@ -73,8 +73,8 @@ def run_checker(*archives: Path) -> subprocess.CompletedProcess[str]:
 
 
 def test_minimal_wheel_and_sdist_are_accepted(tmp_path: Path) -> None:
-    wheel = tmp_path / "mcp_rig-0.4.0-py3-none-any.whl"
-    sdist = tmp_path / "mcp_rig-0.4.0.tar.gz"
+    wheel = tmp_path / "mcp_rig-0.4.1-py3-none-any.whl"
+    sdist = tmp_path / "mcp_rig-0.4.1.tar.gz"
     make_wheel(wheel)
     make_sdist(sdist)
 
@@ -89,7 +89,7 @@ def test_minimal_wheel_and_sdist_are_accepted(tmp_path: Path) -> None:
 
 
 def test_wheel_rejects_files_outside_package_and_metadata(tmp_path: Path) -> None:
-    wheel = tmp_path / "mcp_rig-0.4.0-py3-none-any.whl"
+    wheel = tmp_path / "mcp_rig-0.4.1-py3-none-any.whl"
     make_wheel(wheel, WHEEL_MEMBERS + ("docs/releasing.md", "AGENTS.md"))
 
     result = run_checker(wheel)
@@ -104,15 +104,15 @@ def test_wheel_rejects_files_outside_package_and_metadata(tmp_path: Path) -> Non
 
 
 def test_sdist_rejects_repository_only_files(tmp_path: Path) -> None:
-    sdist = tmp_path / "mcp_rig-0.4.0.tar.gz"
+    sdist = tmp_path / "mcp_rig-0.4.1.tar.gz"
     make_sdist(
         sdist,
         SDIST_MEMBERS
         + (
-            "mcp_rig-0.4.0/.superpowers/sdd/session.md",
-            "mcp_rig-0.4.0/AGENTS.md",
-            "mcp_rig-0.4.0/docs/releasing.md",
-            "mcp_rig-0.4.0/graphify-out/graph.json",
+            "mcp_rig-0.4.1/.superpowers/sdd/session.md",
+            "mcp_rig-0.4.1/AGENTS.md",
+            "mcp_rig-0.4.1/docs/releasing.md",
+            "mcp_rig-0.4.1/graphify-out/graph.json",
         ),
     )
 
@@ -130,9 +130,9 @@ def test_sdist_rejects_repository_only_files(tmp_path: Path) -> None:
 
 
 def test_wheel_rejects_foreign_metadata_tree(tmp_path: Path) -> None:
-    wheel = tmp_path / "mcp_rig-0.4.0-py3-none-any.whl"
+    wheel = tmp_path / "mcp_rig-0.4.1-py3-none-any.whl"
     foreign_members = tuple(
-        member.replace("mcp_rig-0.4.0.dist-info", "mcp_rig-9.9.9.dist-info")
+        member.replace("mcp_rig-0.4.1.dist-info", "mcp_rig-9.9.9.dist-info")
         for member in WHEEL_MEMBERS
     )
     make_wheel(wheel, foreign_members)
@@ -144,7 +144,7 @@ def test_wheel_rejects_foreign_metadata_tree(tmp_path: Path) -> None:
 
 
 def test_wheel_rejects_foreign_directory_entries(tmp_path: Path) -> None:
-    wheel = tmp_path / "mcp_rig-0.4.0-py3-none-any.whl"
+    wheel = tmp_path / "mcp_rig-0.4.1-py3-none-any.whl"
     make_wheel(wheel, WHEEL_MEMBERS + ("docs/",))
 
     result = run_checker(wheel)
@@ -154,7 +154,7 @@ def test_wheel_rejects_foreign_directory_entries(tmp_path: Path) -> None:
 
 
 def test_wheel_rejects_symlink_disguised_as_directory(tmp_path: Path) -> None:
-    wheel = tmp_path / "mcp_rig-0.4.0-py3-none-any.whl"
+    wheel = tmp_path / "mcp_rig-0.4.1-py3-none-any.whl"
     make_wheel(wheel, links=("mcp_rig/link/",))
 
     result = run_checker(wheel)
@@ -165,10 +165,10 @@ def test_wheel_rejects_symlink_disguised_as_directory(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("link_type", [tarfile.SYMTYPE, tarfile.LNKTYPE])
 def test_sdist_rejects_links(tmp_path: Path, link_type: bytes) -> None:
-    sdist = tmp_path / "mcp_rig-0.4.0.tar.gz"
+    sdist = tmp_path / "mcp_rig-0.4.1.tar.gz"
     make_sdist(
         sdist,
-        links=(("mcp_rig-0.4.0/src/mcp_rig/link.py", link_type),),
+        links=(("mcp_rig-0.4.1/src/mcp_rig/link.py", link_type),),
     )
 
     result = run_checker(sdist)
@@ -180,8 +180,8 @@ def test_sdist_rejects_links(tmp_path: Path, link_type: bytes) -> None:
 @pytest.mark.parametrize(
     ("archive_name", "unsafe_member"),
     [
-        ("mcp_rig-0.4.0-py3-none-any.whl", "mcp_rig/subdir\\payload.py"),
-        ("mcp_rig-0.4.0.tar.gz", "mcp_rig-0.4.0/src/mcp_rig/subdir\\payload.py"),
+        ("mcp_rig-0.4.1-py3-none-any.whl", "mcp_rig/subdir\\payload.py"),
+        ("mcp_rig-0.4.1.tar.gz", "mcp_rig-0.4.1/src/mcp_rig/subdir\\payload.py"),
     ],
 )
 def test_archives_reject_backslash_paths(
@@ -200,7 +200,7 @@ def test_archives_reject_backslash_paths(
 
 
 @pytest.mark.parametrize(
-    "archive_name", ["mcp_rig-0.4.0-py3-none-any.whl", "mcp_rig-0.4.0.tar.gz"]
+    "archive_name", ["mcp_rig-0.4.1-py3-none-any.whl", "mcp_rig-0.4.1.tar.gz"]
 )
 def test_empty_archives_are_rejected(tmp_path: Path, archive_name: str) -> None:
     archive = tmp_path / archive_name

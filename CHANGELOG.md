@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.4.1
+
+### Added
+
+- Local servers can receive environment variables portably. `${NAME}` is
+  filled in in the command, `args`, `env` and `cwd`, `${SUITE_DIR}` names the
+  suite's directory, and `server.inherit_env` copies listed variables, such as
+  proxy settings, when they are set. `check` and `init` accept
+  `--env NAME[=VALUE]`. ([#54](https://github.com/gorkemgul/mcp-rig/issues/54))
+- A server must start and answer the MCP handshake within
+  `server.connect_timeout_s`, 120 s by default, or `--connect-timeout` on
+  `check` and `init`. A server that never answers fails with
+  `ConnectTimeoutError` instead of hanging.
+  ([#65](https://github.com/gorkemgul/mcp-rig/issues/65))
+- `check` names the negotiated protocol version, and MCP Rig is tested against
+  servers that speak only the 2026-07-28 revision or only the earlier
+  handshake revisions. ([#51](https://github.com/gorkemgul/mcp-rig/issues/51))
+- `mcp-rig --version`.
+
+### Fixed
+
+- A local server that cannot start says why: command not found, a command that
+  is not an MCP server, or a server that wrote non-JSON to stdout, quoting the
+  first such line. These were reported as a bare `FileNotFoundError` or
+  `Connection closed`. ([#56](https://github.com/gorkemgul/mcp-rig/issues/56))
+- The `--server-logs` hint no longer follows errors that already explain
+  themselves, such as a setup step that fails its expectation.
+  ([#56](https://github.com/gorkemgul/mcp-rig/issues/56))
+- MCP SDK log records and tracebacks no longer reach the terminal unless
+  `--server-logs` is given. ([#56](https://github.com/gorkemgul/mcp-rig/issues/56))
+- `coverage` no longer reports 100% when no server could list its tools.
+  ([#56](https://github.com/gorkemgul/mcp-rig/issues/56))
+- Batch output shows suite paths relative to the working directory, so the
+  header no longer changes with `--case`, `--tag` or `--update-snapshots`.
+  ([#56](https://github.com/gorkemgul/mcp-rig/issues/56))
+
+### Changed
+
+- The README explains what MCP Rig finds that response checks miss, compares it
+  with MCP Inspector, the conformance suite and LLM eval tools, and starts with
+  `uvx`.
+- `${NAME}` in a local server's command, `args`, `env` or `cwd` is now
+  replaced, and an unset variable is a configuration error. It used to be
+  passed through literally.
+
 ## 0.4.0
 
 ### Added
