@@ -36,7 +36,8 @@ behaving that way:
   and flags weak tool definitions, including side-effecting tools that are
   unsafe to retry.
 
-MCP Rig currently launches local MCP servers over stdio and tests their tools.
+MCP Rig tests the tools of local stdio servers and of remote servers over
+Streamable HTTP or SSE.
 
 ## Quick start
 
@@ -161,6 +162,47 @@ followed by aggregate suite and case counts. A JUnit file contains one
 `<testsuite>` for every suite or invalid target beneath a shared `<testsuites>`
 root.
 
+### Test a remote server
+
+Point a suite at an HTTP endpoint instead of a command:
+
+```yaml
+server:
+  url: https://mcp.example.com/mcp
+  headers:
+    Authorization: "Bearer ${MCP_TOKEN}"
+
+tests:
+  - name: lists projects
+    call: list_projects
+    expect:
+      is_error: false
+```
+
+`url` uses Streamable HTTP. Add `transport: sse` for servers that still use the
+legacy SSE transport. The short form `server: https://mcp.example.com/mcp` works
+when no headers are needed. `url` cannot be combined with `command`, `args`,
+`env`, or `cwd`.
+
+`${NAME}` in `url` and header values is replaced with the environment variable
+`NAME` when the suite loads, so tokens stay out of committed files. A missing
+variable is a configuration error. `check` and `init` accept a URL too, with
+repeatable `--header` options:
+
+```bash
+mcp-rig check https://mcp.example.com/mcp --header "Authorization: Bearer $MCP_TOKEN"
+mcp-rig init https://mcp.example.com/mcp --header "Authorization: Bearer $MCP_TOKEN" --output tests/mcp/remote.yaml
+```
+
+`init` never writes header values. It writes references such as
+`${MCP_AUTHORIZATION}` and prints which variables to set.
+
+A rejected connection reports its HTTP status, for example
+`HTTP 401 Unauthorized`. After a transport error, a retry opens a new HTTP
+session. MCP Rig cannot restart a remote server, so its state is never reset;
+use `setup` and `teardown` steps for that. `--server-logs` only applies to
+local servers.
+
 ### Filter cases and tags
 
 Suites and individual cases can declare lowercase tags. Suite tags are
@@ -252,10 +294,10 @@ The [complete feature tour](https://github.com/gorkemgul/mcp-rig/tree/main/examp
 provides runnable local examples for every expectation, snapshots, tags and filters, server
 configuration, batch runs, JUnit, diagnostics, and `check`. Start with the
 [custom-server template](https://github.com/gorkemgul/mcp-rig/tree/main/examples/custom-server-template)
-when testing your own stdio server, and use the
+when testing your own server, and use the
 [GitHub Actions example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/ci) for CI.
 
-A suite names the stdio server command and the tool calls to verify:
+A suite names the server and the tool calls to verify:
 
 ```yaml
 server:
@@ -415,7 +457,7 @@ For `check`, exit code `0` means all protocol checks passed, `1` means a
 protocol check failed or strict lint found warnings, and `2` means the command,
 server process, connection, or teardown failed.
 
-This release supports local stdio servers and tools only.
+MCP Rig tests tools; resources and prompts are not covered yet.
 
 Repository CI tests Python 3.11 through 3.13 and validates both wheel and
 source distributions without publishing them.

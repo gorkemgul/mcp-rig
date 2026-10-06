@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,7 @@ from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
 from referencing.jsonschema import DRAFT202012
 
-from mcp_rig.client import ServerSpec
+from mcp_rig.client import TRANSPORTS, ServerSpec, is_url
 from mcp_rig.selection import validate_tag
 from mcp_rig.snapshots import SnapshotError, snapshot_path
 
@@ -108,6 +109,10 @@ def load_suite(path: str | Path) -> Suite:
 
 
 def _parse_server(raw: Any, path: Path) -> ServerSpec:
+    if isinstance(raw, str) and is_url(raw):
+        return _parse_remote_server({"url": raw}, path)
+    if isinstance(raw, dict) and "url" in raw:
+        return _parse_remote_server(raw, path)
     if isinstance(raw, str) and raw.strip():
         try:
             spec = ServerSpec.from_command_line(raw)
@@ -149,6 +154,43 @@ def _parse_server(raw: Any, path: Path) -> ServerSpec:
         cwd_path = Path(spec.cwd)
         spec.cwd = str(cwd_path if cwd_path.is_absolute() else (base / cwd_path).resolve())
     return spec
+
+
+_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _parse_remote_server(raw: dict[str, Any], path: Path) -> ServerSpec:
+    local_keys = sorted({"command", "args", "env", "cwd"} & set(raw))
+    if local_keys:
+        raise SpecError(f"{path}: 'server.url' cannot be combined with {', '.join(local_keys)}")
+    url = raw.get("url")
+    if not isinstance(url, str) or not is_url(url):
+        raise SpecError(f"{path}: 'server.url' must be an http:// or https:// URL")
+    headers = raw.get("headers", {})
+    if not isinstance(headers, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in headers.items()
+    ):
+        raise SpecError(f"{path}: 'server.headers' must map strings to strings")
+    transport = raw.get("transport", TRANSPORTS[0])
+    if transport not in TRANSPORTS:
+        raise SpecError(f"{path}: 'server.transport' must be one of: {', '.join(TRANSPORTS)}")
+    return ServerSpec(
+        url=_interpolate(url.strip(), path, "server.url"),
+        headers={key: _interpolate(value, path, f"server.headers.{key}") for key, value in headers.items()},
+        transport=transport,
+    )
+
+
+def _interpolate(value: str, path: Path, where: str) -> str:
+    """Replace ${NAME} with environment values so secrets stay out of suites."""
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in os.environ:
+            raise SpecError(f"{path}: '{where}' uses ${{{name}}}, but environment variable {name} is not set")
+        return os.environ[name]
+
+    return _ENV_REFERENCE.sub(replace, value)
 
 
 def _parse_case(raw: Any, index: int, path: Path) -> Case:
