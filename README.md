@@ -12,8 +12,51 @@
 
 Deterministic, CI-friendly testing for Model Context Protocol servers.
 
-MCP Rig currently launches local MCP servers over stdio and runs declarative
-tool suites in YAML.
+Write the calls your MCP server must handle as a YAML suite, then run that
+suite on every commit. MCP Rig starts the server, calls its tools, checks the
+results, and reports in a format CI understands.
+
+## Why MCP Rig?
+
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the
+official tool for trying a server by hand: you connect, click a tool, and read
+the response. MCP Rig is for what comes next, making sure the server keeps
+behaving that way:
+
+- **Repeatable suites.** Cases live in YAML next to your code and run the same
+  way locally and in CI.
+- **Focused checks.** Expected errors, text, regular expressions, JSON paths,
+  JSON Schema, latency limits, and full-response snapshots.
+- **State, not just responses.** `verify` steps check what a call actually
+  changed. Opt-in retries show whether a tool applies its effect twice when a
+  response is lost.
+- **CI-ready output.** JUnit XML, clear exit codes, tag and name filters, and a
+  GitHub Action.
+- **Server checks without a suite.** `mcp-rig check` probes protocol behavior
+  and flags weak tool definitions, including side-effecting tools that are
+  unsafe to retry.
+
+MCP Rig currently launches local MCP servers over stdio and tests their tools.
+
+## Quick start
+
+```bash
+pipx install mcp-rig
+mcp-rig check "python server.py"
+mcp-rig init "python server.py" --output tests/mcp/server.yaml
+mcp-rig run tests/mcp/server.yaml
+```
+
+`check` gives an immediate health report. `init` writes one starter case per
+tool. Replace its placeholder arguments with real ones, add expectations, and
+commit the suite. Then add one step to your workflow:
+
+```yaml
+- uses: gorkemgul/mcp-rig@v0.2.0
+  with:
+    suites: tests/mcp/
+    junit: mcp-rig-results.xml
+```
 
 ## CLI in action
 
