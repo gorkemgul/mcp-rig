@@ -224,3 +224,44 @@ def test_explicit_side_effect_hint_is_checked_regardless_of_name():
     warnings = lint_tools([tool("ledger", annotations={"readOnlyHint": False, "idempotentHint": False})])
 
     assert codes(warnings) == [("ledger", "retry-unsafe")]
+
+
+def test_ignore_patterns_drop_codes_globally_or_per_tool_and_report_unused_ones():
+    from mcp_rig.lint import filter_warnings
+
+    warnings = lint_tools(
+        [
+            tool("create_record", description="Store a new customer record in the database."),
+            tool("send_email", description="Deliver one message to a recipient over SMTP."),
+            tool("brief", description="Too short here"),
+        ]
+    )
+
+    filtered = filter_warnings(warnings, ["retry-unsafe:create_record", "short-description", "invalid-schema"])
+
+    assert codes(filtered.kept) == [("send_email", "retry-unsafe")]
+    assert filtered.ignored == 2
+    assert filtered.unused_patterns == ["invalid-schema"]
+
+
+def test_similar_tools_pattern_matches_either_tool_of_the_pair():
+    from mcp_rig.lint import filter_warnings
+
+    description = "Return the current weather report for one city."
+    warnings = lint_tools([tool("weather_now", description), tool("weather_today", description)])
+
+    assert codes(warnings) == [("weather_now/weather_today", "similar-tools")]
+    assert filter_warnings(warnings, ["similar-tools:weather_today"]).kept == []
+    assert filter_warnings(warnings, ["similar-tools:weather_now/weather_today"]).kept == []
+    assert filter_warnings(warnings, ["similar-tools:other"]).kept == warnings
+
+
+@pytest.mark.parametrize(
+    ("pattern", "message"),
+    [("retry-unsaf", "unknown lint code 'retry-unsaf'"), ("retry-unsafe:", "names no tool")],
+)
+def test_ignore_patterns_are_validated(pattern, message):
+    from mcp_rig.lint import parse_ignore_pattern
+
+    with pytest.raises(ValueError, match=message):
+        parse_ignore_pattern(pattern)

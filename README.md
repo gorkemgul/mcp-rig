@@ -395,6 +395,22 @@ Lint warnings are advisory by default. Use `--strict` to make them fail CI:
 mcp-rig check "python path/to/server.py" --strict
 ```
 
+Heuristic warnings can be wrong for a particular server. Silence a code
+everywhere, or a code for one tool, with repeatable `--ignore` options:
+
+```bash
+mcp-rig check "python path/to/server.py" --strict \
+  --ignore similar-tools \
+  --ignore retry-unsafe:create_record
+```
+
+For `similar-tools`, either tool of the pair matches. Ignored warnings do not
+count toward `--strict`, and the summary reports how many were ignored. A
+pattern that matches nothing prints a warning, so stale ignores are noticed. An
+unknown code is a usage error. The codes are `no-description`,
+`short-description`, `invalid-schema`, `param-no-description`, `similar-tools`,
+and `retry-unsafe`.
+
 `--probe-invalid-args` calls every tool that declares required parameters with
 an empty argument object and checks that the call is rejected. Use this option
 only with development or test servers: a server that does not enforce its

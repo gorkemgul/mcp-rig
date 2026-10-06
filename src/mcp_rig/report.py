@@ -132,6 +132,7 @@ def render_check(
     checks: list[CheckResult],
     warnings: list[LintWarning],
     color: bool = False,
+    ignored: int = 0,
 ) -> str:
     """Render protocol checks and tool-definition warnings for a human."""
     lines = ["Protocol checks"]
@@ -151,7 +152,8 @@ def render_check(
 
     passed = sum(check.passed for check in checks)
     warning_label = "warning" if len(warnings) == 1 else "warnings"
-    lines.append(
-        f"{passed}/{len(checks)} checks passed, {len(warnings)} lint {warning_label}"
-    )
+    summary = f"{passed}/{len(checks)} checks passed, {len(warnings)} lint {warning_label}"
+    if ignored:
+        summary += f" ({ignored} ignored)"
+    lines.append(summary)
     return "\n".join(lines)
