@@ -1,4 +1,4 @@
-"""Connect to MCP servers over stdio and normalize tool results."""
+"""Connect to MCP servers over stdio or HTTP and normalize tool results."""
 
 from __future__ import annotations
 
@@ -8,23 +8,36 @@ import shlex
 import sys
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx2
 from mcp import Client, MCPError
+from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, TextContent
+
+TRANSPORTS = ("streamable-http", "sse")
+HTTP_TIMEOUT = httpx2.Timeout(30.0, read=300.0)
 
 
 @dataclass
 class ServerSpec:
-    """A local command that launches an MCP server over stdio."""
+    """An MCP server: a local command launched over stdio, or a remote URL."""
 
-    command: str
+    command: str = ""
     args: list[str] = field(default_factory=list)
     env: dict[str, str] | None = None
     cwd: str | None = None
+    url: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    transport: str = "streamable-http"
+
+    @property
+    def is_remote(self) -> bool:
+        return self.url is not None
 
     @classmethod
     def from_command_line(cls, command_line: str) -> ServerSpec:
@@ -32,6 +45,19 @@ class ServerSpec:
         if not parts:
             raise ValueError("server command is empty")
         return cls(command=parts[0], args=parts[1:])
+
+    @classmethod
+    def from_target(cls, target: str, headers: dict[str, str] | None = None) -> ServerSpec:
+        """Read a CLI server argument: an http(s) URL or a command line."""
+        if is_url(target):
+            return cls(url=target.strip(), headers=dict(headers or {}))
+        if headers:
+            raise ValueError("headers apply only to http(s) server URLs")
+        return cls.from_command_line(target)
+
+
+def is_url(value: str) -> bool:
+    return value.strip().lower().startswith(("http://", "https://"))
 
 
 @dataclass(frozen=True)
@@ -121,7 +147,11 @@ class Probe:
 
 @asynccontextmanager
 async def connect(spec: ServerSpec, show_server_logs: bool = False) -> AsyncIterator[Probe]:
-    """Start one stdio server and yield an initialized MCP Rig probe."""
+    """Connect to one server and yield an initialized MCP Rig probe."""
+    if spec.is_remote:
+        async with _connect_http(spec) as probe:
+            yield probe
+        return
     params = StdioServerParameters(
         command=spec.command,
         args=spec.args,
@@ -133,3 +163,42 @@ async def connect(spec: ServerSpec, show_server_logs: bool = False) -> AsyncIter
         transport = stdio_client(params, errlog=errlog)
         async with Client(transport) as client:
             yield Probe(client)
+
+
+@asynccontextmanager
+async def _connect_http(spec: ServerSpec) -> AsyncIterator[Probe]:
+    assert spec.url is not None
+    http_errors: list[httpx2.Response] = []
+
+    async def record_error(response: httpx2.Response) -> None:
+        if response.status_code >= 400:
+            http_errors.append(response)
+
+    def http_client(
+        headers: dict[str, str] | None = None,
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
+            headers=headers,
+            timeout=timeout or HTTP_TIMEOUT,
+            auth=auth,
+            event_hooks={"response": [record_error]},
+        )
+
+    async with AsyncExitStack() as stack:
+        if spec.transport == "sse":
+            transport = sse_client(spec.url, headers=spec.headers or None, httpx_client_factory=http_client)
+        else:
+            client = await stack.enter_async_context(http_client(headers=spec.headers))
+            transport = streamable_http_client(spec.url, http_client=client)
+        try:
+            session = await stack.enter_async_context(Client(transport))
+        except Exception as exc:
+            if http_errors:
+                response = http_errors[-1]
+                raise ConnectionError(
+                    f"HTTP {response.status_code} {response.reason_phrase} from {spec.url}"
+                ) from exc
+            raise
+        yield Probe(session)

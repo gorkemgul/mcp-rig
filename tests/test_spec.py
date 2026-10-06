@@ -503,3 +503,52 @@ tests:
 def test_rejects_invalid_rerun_setup_and_case_after_timeout(tmp_path, body, message):
     with pytest.raises(SpecError, match=re.escape(message)):
         load_suite(write_suite(tmp_path, body))
+
+
+def test_loads_remote_server_from_url_string_or_mapping(tmp_path, monkeypatch):
+    monkeypatch.setenv("MCP_TOKEN", "abc")
+    short = load_suite(write_suite(tmp_path, "server: https://mcp.example.com/mcp\ntests:\n  - {name: a, call: b}\n"))
+    full = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server:
+  url: https://mcp.example.com/${MCP_TOKEN}/sse
+  transport: sse
+  headers:
+    Authorization: "Bearer ${MCP_TOKEN}"
+tests:
+  - {name: a, call: b}
+""",
+        )
+    )
+
+    assert (short.server.url, short.server.transport, short.server.headers) == (
+        "https://mcp.example.com/mcp",
+        "streamable-http",
+        {},
+    )
+    assert short.server.is_remote and short.server.cwd is None
+    assert full.server.url == "https://mcp.example.com/abc/sse"
+    assert full.server.transport == "sse"
+    assert full.server.headers == {"Authorization": "Bearer abc"}
+
+
+@pytest.mark.parametrize(
+    ("server", "message"),
+    [
+        ("{url: https://x/mcp, command: python}", "'server.url' cannot be combined with command"),
+        ("{url: ftp://x}", "'server.url' must be an http:// or https:// URL"),
+        ("{url: https://x/mcp, headers: [a]}", "'server.headers' must map strings to strings"),
+        ("{url: https://x/mcp, transport: websocket}", "'server.transport' must be one of: streamable-http, sse"),
+        (
+            "{url: https://x/mcp, headers: {Authorization: 'Bearer ${MCP_RIG_UNSET_VAR}'}}",
+            "environment variable MCP_RIG_UNSET_VAR is not set",
+        ),
+    ],
+)
+def test_rejects_invalid_remote_servers(tmp_path, monkeypatch, server, message):
+    monkeypatch.delenv("MCP_RIG_UNSET_VAR", raising=False)
+
+    with pytest.raises(SpecError, match=re.escape(message)):
+        load_suite(write_suite(tmp_path, f"server: {server}\ntests:\n  - {{name: a, call: b}}\n"))
