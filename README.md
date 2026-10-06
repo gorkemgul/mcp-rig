@@ -70,6 +70,32 @@ package. In that case the server exits during startup and MCP Rig reports
 `suite setup: MCPError: Connection closed`. Add `--server-logs` to see the
 server's error output.
 
+## Generate a starter suite
+
+Point `init` at your server to write one case per advertised tool:
+
+```bash
+mcp-rig init "python server.py" --output tests/mcp/server.yaml
+mcp-rig run tests/mcp/server.yaml
+```
+
+Each case calls its tool with typed placeholders for the required parameters.
+A placeholder is the schema's default, const, or first enum value when one
+exists, and otherwise an empty value of the right type. The tool description is
+kept as a comment, along with a `TODO` to replace the placeholders and add
+expectations. Generated cases only require a successful call, so the suite runs
+straight away.
+
+Tools that look side-effecting are tagged `side-effect`. A tool counts as
+side-effecting when its name starts with a verb such as `create` or `send`, or
+when it is annotated `readOnlyHint: false` or `destructiveHint: true`. Leave
+those cases out against a live server with `--exclude-tag side-effect`.
+
+When `--output` points to another directory, the suite records the server's
+working directory so relative paths in the command keep working. Without
+`--output`, the suite is printed to stdout. `init` does not overwrite an
+existing file unless `--force` is given.
+
 ## Run a suite
 
 ```bash

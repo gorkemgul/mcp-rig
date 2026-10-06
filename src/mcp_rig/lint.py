@@ -102,13 +102,17 @@ def _lint_schema(tool: ToolInfo) -> list[LintWarning]:
     return warnings
 
 
-def _lint_retry_safety(tool: ToolInfo) -> list[LintWarning]:
-    annotations = tool.annotations
-    if annotations.get("readOnlyHint") is True or annotations.get("idempotentHint") is True:
-        return []
+def looks_side_effecting(tool: ToolInfo) -> bool:
+    """Whether a tool appears to change state, judged by its annotations and name."""
+    read_only = tool.annotations.get("readOnlyHint")
+    if read_only is True:
+        return False
     words = _name_words(tool.name)
-    looks_additive = len(words) > 1 and words[0] in ADDITIVE_VERBS
-    if not looks_additive and annotations.get("readOnlyHint") is not False:
+    return read_only is False or (len(words) > 1 and words[0] in ADDITIVE_VERBS)
+
+
+def _lint_retry_safety(tool: ToolInfo) -> list[LintWarning]:
+    if tool.annotations.get("idempotentHint") is True or not looks_side_effecting(tool):
         return []
     properties = tool.input_schema.get("properties")
     if isinstance(properties, dict) and any(
