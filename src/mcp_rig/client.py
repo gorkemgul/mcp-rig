@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import shlex
 import sys
@@ -13,6 +14,7 @@ from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 
+import anyio
 import httpx2
 from mcp import Client, MCPError
 from mcp.client.sse import sse_client
@@ -24,10 +26,17 @@ from mcp_rig.faults import FaultInjector, inject_faults
 
 TRANSPORTS = ("streamable-http", "sse")
 STDIO_LOGGER = "mcp.client.stdio"
+# Long enough for npx or uvx to install a server on a cold CI cache, short enough
+# that a server stuck before the handshake fails the job instead of holding it.
+DEFAULT_CONNECT_TIMEOUT_S = 120.0
 
 
 class ServerStartError(ConnectionError):
     """A local server command could not start, or what started does not speak MCP."""
+
+
+class ConnectTimeoutError(ServerStartError):
+    """The server did not finish the MCP handshake in time."""
 HTTP_TIMEOUT = httpx2.Timeout(30.0, read=300.0)
 
 
@@ -43,6 +52,7 @@ class ServerSpec:
     headers: dict[str, str] = field(default_factory=dict)
     transport: str = "streamable-http"
     inherit_env: bool | tuple[str, ...] = False
+    connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S
 
     @property
     def is_remote(self) -> bool:
@@ -193,8 +203,28 @@ async def connect(
     """Connect to one server and yield an initialized MCP Rig probe.
 
     With a fault injector, every message passes through a relay that can lose one
-    tool response on purpose.
+    tool response on purpose. Starting the server and the handshake share one
+    deadline, ``spec.connect_timeout_s``; it is lifted once the server is connected.
     """
+    connected = False
+    with anyio.CancelScope(deadline=anyio.current_time() + spec.connect_timeout_s) as deadline:
+        async with _connect(spec, show_server_logs, faults) as probe:
+            deadline.deadline = math.inf
+            connected = True
+            yield probe
+    if not connected and deadline.cancelled_caught:
+        raise ConnectTimeoutError(
+            f"the server did not answer the MCP handshake within {spec.connect_timeout_s:g} s; "
+            "raise server.connect_timeout_s or --connect-timeout if it is still starting or installing"
+        )
+
+
+@asynccontextmanager
+async def _connect(
+    spec: ServerSpec,
+    show_server_logs: bool,
+    faults: FaultInjector | None,
+) -> AsyncIterator[Probe]:
     if spec.is_remote:
         async with _connect_http(spec, faults) as probe:
             yield probe

@@ -117,6 +117,21 @@ def load_suite(path: str | Path) -> Suite:
 
 
 def _parse_server(raw: Any, path: Path) -> ServerSpec:
+    spec = _parse_server_target(raw, path)
+    if isinstance(raw, dict) and "connect_timeout_s" in raw:
+        value = raw["connect_timeout_s"]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise SpecError(f"{path}: 'server.connect_timeout_s' must be a positive number of seconds")
+        spec.connect_timeout_s = float(value)
+    return spec
+
+
+def _parse_server_target(raw: Any, path: Path) -> ServerSpec:
     if isinstance(raw, str) and is_url(raw):
         return _parse_remote_server({"url": raw}, path)
     if isinstance(raw, dict) and "url" in raw:

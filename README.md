@@ -208,6 +208,13 @@ mcp-rig check "npx -y @example/mcp-server" --env HTTPS_PROXY --env API_TOKEN="$A
 `init` never writes `--env` values. It writes `${NAME}` references and
 `inherit_env` names, and prints which variables to set.
 
+A server must start and answer the MCP handshake within 120 seconds, long
+enough for `npx` or `uvx` to install it on an empty cache. A server that never
+answers fails with `ConnectTimeoutError` instead of holding a CI job. Change the
+limit with `connect_timeout_s` under `server`, local or remote, or with
+`--connect-timeout SECONDS` on `check` and `init`. The limit covers connecting
+only; each call has its own `timeout_s`.
+
 ### Test a remote server
 
 Point a suite at an HTTP endpoint instead of a command:

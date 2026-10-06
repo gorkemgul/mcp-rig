@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import re
 import sys
 from pathlib import Path
@@ -14,7 +15,7 @@ import anyio
 from mcp_rig import __version__
 from mcp_rig.batch import BatchResult, run_batch
 from mcp_rig.checks import CheckResult, run_protocol_checks
-from mcp_rig.client import ServerSpec, ServerStartError, ToolInfo, connect, is_url
+from mcp_rig.client import DEFAULT_CONNECT_TIMEOUT_S, ServerSpec, ServerStartError, ToolInfo, connect, is_url
 from mcp_rig.coverage import measure, render_coverage
 from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
@@ -29,7 +30,7 @@ from mcp_rig.spec import SpecError, load_suite
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
-SERVER_LOGS_HINT = "hint: the server may have exited; rerun with --server-logs to see its stderr"
+SERVER_LOGS_HINT = "hint: rerun with --server-logs to see what the server wrote to stderr"
 # Errors whose message already says what went wrong; server stderr would not add to it.
 EXPLAINED_ERRORS = frozenset({ServerStartError.__name__, "StepFailed"})
 _SDK_LOGS = logging.NullHandler()
@@ -100,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_header_option(check_parser)
     _add_env_option(check_parser)
+    _add_connect_timeout_option(check_parser)
     check_parser.add_argument(
         "--probe-invalid-args",
         action="store_true",
@@ -135,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_header_option(init_parser)
     _add_env_option(init_parser)
+    _add_connect_timeout_option(init_parser)
     init_parser.add_argument(
         "--output",
         metavar="PATH",
@@ -410,7 +413,9 @@ async def _check(
 def _server_from_args(args: argparse.Namespace) -> ServerSpec | None:
     try:
         env, inherit_env = _parse_env(args.env)
-        return ServerSpec.from_target(args.server, _parse_headers(args.headers), env, inherit_env)
+        spec = ServerSpec.from_target(args.server, _parse_headers(args.headers), env, inherit_env)
+        spec.connect_timeout_s = args.connect_timeout
+        return spec
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return None
@@ -425,6 +430,26 @@ def _add_header_option(parser: argparse.ArgumentParser) -> None:
         metavar="NAME:VALUE",
         help="HTTP header for a URL server, for example 'Authorization: Bearer $TOKEN'; repeatable",
     )
+
+
+def _add_connect_timeout_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--connect-timeout",
+        type=_seconds_arg,
+        default=DEFAULT_CONNECT_TIMEOUT_S,
+        metavar="SECONDS",
+        help=f"seconds to wait for the server to start and answer (default {DEFAULT_CONNECT_TIMEOUT_S:g})",
+    )
+
+
+def _seconds_arg(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid seconds: {value!r}") from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError(f"seconds must be a positive number: {value!r}")
+    return seconds
 
 
 def _add_env_option(parser: argparse.ArgumentParser) -> None:
