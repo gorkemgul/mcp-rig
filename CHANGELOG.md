@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- `mcp-rig init` generates a starter suite from a server's tools: one case per
+  tool, typed placeholder arguments from the input schema, and a `side-effect`
+  tag on tools that look state-changing.
+  ([#27](https://github.com/gorkemgul/mcp-rig/issues/27))
+- A composite GitHub Action runs MCP Rig suites in one step:
+  `uses: gorkemgul/mcp-rig@v0.2.0`. It installs MCP Rig into its own
+  environment so the server's Python stays untouched.
+  ([#28](https://github.com/gorkemgul/mcp-rig/issues/28))
+- Pushing a `vX.Y.Z` tag creates a draft GitHub Release from the matching
+  `CHANGELOG.md` section, and CI checks that every version has release notes.
+  ([#30](https://github.com/gorkemgul/mcp-rig/issues/30))
+
+### Changed
+
+- The README now explains how MCP Rig differs from MCP Inspector and starts
+  with a quick start. ([#29](https://github.com/gorkemgul/mcp-rig/issues/29))
+
 ## 0.1.1
 
 ### Added
