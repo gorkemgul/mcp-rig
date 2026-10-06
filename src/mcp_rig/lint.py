@@ -47,6 +47,18 @@ IDEMPOTENCY_PARAMETERS = frozenset(
 )
 
 
+LINT_CODES = frozenset(
+    {
+        "invalid-schema",
+        "no-description",
+        "param-no-description",
+        "retry-unsafe",
+        "short-description",
+        "similar-tools",
+    }
+)
+
+
 @dataclass(frozen=True)
 class LintWarning:
     """One advisory tool-definition quality warning."""
@@ -153,3 +165,41 @@ def _lint_similar(tools: list[ToolInfo]) -> list[LintWarning]:
                     )
                 )
     return warnings
+
+
+@dataclass(frozen=True)
+class FilteredWarnings:
+    kept: list[LintWarning]
+    ignored: int
+    unused_patterns: list[str]
+
+
+def parse_ignore_pattern(pattern: str) -> str:
+    """Validate a `CODE` or `CODE:TOOL` pattern and return it unchanged."""
+    code, _, tool = pattern.partition(":")
+    if code not in LINT_CODES:
+        raise ValueError(f"unknown lint code {code!r} in --ignore; known codes: {', '.join(sorted(LINT_CODES))}")
+    if ":" in pattern and not tool:
+        raise ValueError(f"--ignore {pattern!r} names no tool; use CODE or CODE:TOOL")
+    return pattern
+
+
+def filter_warnings(warnings: list[LintWarning], patterns: list[str]) -> FilteredWarnings:
+    """Drop warnings matched by `CODE` or `CODE:TOOL` patterns and report patterns that matched nothing."""
+    used: set[str] = set()
+    kept: list[LintWarning] = []
+    for warning in warnings:
+        matches = [pattern for pattern in patterns if _ignores(pattern, warning)]
+        used.update(matches)
+        if not matches:
+            kept.append(warning)
+    unused = [pattern for pattern in dict.fromkeys(patterns) if pattern not in used]
+    return FilteredWarnings(kept=kept, ignored=len(warnings) - len(kept), unused_patterns=unused)
+
+
+def _ignores(pattern: str, warning: LintWarning) -> bool:
+    code, _, tool = pattern.partition(":")
+    if code != warning.code:
+        return False
+    # similar-tools warnings name a pair as "first/second"; either name or the pair matches.
+    return not tool or tool == warning.tool or tool in warning.tool.split("/")

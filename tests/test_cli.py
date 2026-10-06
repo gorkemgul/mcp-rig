@@ -1047,3 +1047,24 @@ def test_run_omits_server_logs_hint_after_a_healthy_run(tmp_path, fixture_spec, 
 def test_check_unstartable_server_hints_at_server_logs(capsys):
     assert main(["check", "/definitely/missing/mcp-rig-server"]) == 2
     assert cli_module.SERVER_LOGS_HINT in capsys.readouterr().err
+
+
+def test_check_ignore_silences_warnings_for_strict_mode(fixture_spec, capsys):
+    command = server_command(fixture_spec)
+    ignores = ["--ignore", "param-no-description", "--ignore", "no-description:undocumented"]
+
+    assert main(["check", command, "--strict"]) == 1
+    capsys.readouterr()
+
+    assert main(["check", command, "--strict", *ignores, "--ignore", "similar-tools"]) == 0
+    captured = capsys.readouterr()
+    assert "0 lint warnings (9 ignored)" in captured.out
+    assert "warning: --ignore similar-tools matched no lint warning" in captured.err
+
+
+def test_check_rejects_unknown_ignore_codes(capsys):
+    with pytest.raises(SystemExit) as caught:
+        main(["check", "python server.py", "--ignore", "nope"])
+
+    assert caught.value.code == 2
+    assert "unknown lint code 'nope'" in capsys.readouterr().err

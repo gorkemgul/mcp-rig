@@ -10,13 +10,13 @@ import anyio
 
 from mcp_rig.batch import BatchResult, run_batch
 from mcp_rig.checks import CheckResult, run_protocol_checks
-from mcp_rig.client import ServerSpec, ToolInfo, connect
+from mcp_rig.client import ServerSpec, ToolInfo, connect, is_url
 from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
-from mcp_rig.lint import LintWarning, lint_tools
+from mcp_rig.lint import LintWarning, filter_warnings, lint_tools, parse_ignore_pattern
 from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
 from mcp_rig.runner import CaseStatus, ErrorCategory
-from mcp_rig.scaffold import scaffold_suite
+from mcp_rig.scaffold import header_variables, scaffold_suite
 from mcp_rig.selection import SelectionFilter, validate_tag
 from mcp_rig.snapshots import SNAPSHOT_SUFFIX
 
@@ -86,12 +86,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     check_parser.add_argument(
         "server",
-        help='server command, for example "python server.py"',
+        help='server command such as "python server.py", or an http(s) URL',
     )
+    _add_header_option(check_parser)
     check_parser.add_argument(
         "--probe-invalid-args",
         action="store_true",
         help="call tools with missing required args; only use on development/test servers",
+    )
+    check_parser.add_argument(
+        "--ignore",
+        dest="ignore_patterns",
+        action="append",
+        default=[],
+        type=_ignore_arg,
+        metavar="CODE[:TOOL]",
+        help="ignore a lint code, or a code for one tool; repeatable",
     )
     check_parser.add_argument(
         "--strict",
@@ -110,8 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     init_parser.add_argument(
         "server",
-        help='server command, for example "python server.py"',
+        help='server command such as "python server.py", or an http(s) URL',
     )
+    _add_header_option(init_parser)
     init_parser.add_argument(
         "--output",
         metavar="PATH",
@@ -190,7 +201,7 @@ def _cmd_run(args: argparse.Namespace, color: bool) -> int:
 
 def _server_may_have_exited(result: BatchResult) -> bool:
     for item in result.suites:
-        if item.result is None:
+        if item.result is None or item.remote:
             continue
         error = item.result.suite_error
         if error is not None and error.category is ErrorCategory.SETUP:
@@ -218,8 +229,10 @@ def _render_run(targets: list[str], result: BatchResult, color: bool) -> str:
 
 
 def _cmd_check(args: argparse.Namespace, color: bool) -> int:
+    spec = _server_from_args(args)
+    if spec is None:
+        return EXIT_USAGE
     try:
-        spec = ServerSpec.from_command_line(args.server)
         checks, warnings = anyio.run(
             _check,
             spec,
@@ -228,13 +241,16 @@ def _cmd_check(args: argparse.Namespace, color: bool) -> int:
         )
     except Exception as exc:  # noqa: BLE001 - CLI converts infrastructure errors to exit 2
         print(f"error: could not run server: {_describe(exc)}", file=sys.stderr)
-        if not args.server_logs:
+        if not args.server_logs and not is_url(args.server):
             print(SERVER_LOGS_HINT, file=sys.stderr)
         return EXIT_USAGE
 
-    print(render_check(checks, warnings, color=color))
+    filtered = filter_warnings(warnings, args.ignore_patterns)
+    print(render_check(checks, filtered.kept, color=color, ignored=filtered.ignored))
+    for pattern in filtered.unused_patterns:
+        print(f"warning: --ignore {pattern} matched no lint warning", file=sys.stderr)
     failed = not all(check.passed for check in checks) or (
-        args.strict and bool(warnings)
+        args.strict and bool(filtered.kept)
     )
     return EXIT_FAILED if failed else EXIT_OK
 
@@ -244,12 +260,14 @@ def _cmd_init(args: argparse.Namespace) -> int:
     if output is not None and output.exists() and not args.force:
         print(f"error: {output} already exists; use --force to overwrite it", file=sys.stderr)
         return EXIT_USAGE
+    spec = _server_from_args(args)
+    if spec is None:
+        return EXIT_USAGE
     try:
-        spec = ServerSpec.from_command_line(args.server)
         tools = anyio.run(_list_tools, spec, args.server_logs)
     except Exception as exc:  # noqa: BLE001 - CLI converts infrastructure errors to exit 2
         print(f"error: could not run server: {_describe(exc)}", file=sys.stderr)
-        if not args.server_logs:
+        if not args.server_logs and not is_url(args.server):
             print(SERVER_LOGS_HINT, file=sys.stderr)
         return EXIT_USAGE
     if not tools:
@@ -265,6 +283,8 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(f"error: {output}: could not write suite: {_describe(exc)}", file=sys.stderr)
         return EXIT_USAGE
     print(f"wrote {len(tools)} {'case' if len(tools) == 1 else 'cases'} to {output}")
+    for name, variable in header_variables(spec).items():
+        print(f"header {name} reads ${{{variable}}}; set it before running the suite")
     print(f"next: replace the placeholders, then run `mcp-rig run {output}`")
     return EXIT_OK
 
@@ -288,6 +308,35 @@ async def _check(
     return checks, lint_tools(tools)
 
 
+def _server_from_args(args: argparse.Namespace) -> ServerSpec | None:
+    try:
+        return ServerSpec.from_target(args.server, _parse_headers(args.headers))
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return None
+
+
+def _add_header_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--header",
+        dest="headers",
+        action="append",
+        default=[],
+        metavar="NAME:VALUE",
+        help="HTTP header for a URL server, for example 'Authorization: Bearer $TOKEN'; repeatable",
+    )
+
+
+def _parse_headers(values: list[str]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for value in values:
+        name, separator, content = value.partition(":")
+        if not separator or not name.strip():
+            raise ValueError(f"invalid --header {value!r}; expected NAME:VALUE")
+        headers[name.strip()] = content.strip()
+    return headers
+
+
 def _describe(exc: BaseException) -> str:
     while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
         exc = exc.exceptions[0]
@@ -299,6 +348,13 @@ def _same_path(first: str | Path, second: str | Path) -> bool:
         return Path(first).samefile(second)
     except OSError:
         return Path(first).resolve() == Path(second).resolve()
+
+
+def _ignore_arg(value: str) -> str:
+    try:
+        return parse_ignore_pattern(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _tag_arg(value: str) -> str:

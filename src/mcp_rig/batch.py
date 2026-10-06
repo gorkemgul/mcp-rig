@@ -36,6 +36,7 @@ class SuiteRun:
     path: Path
     result: SuiteResult | None = None
     error: BatchFailure | None = None
+    remote: bool = False
 
 
 @dataclass(frozen=True)
@@ -206,7 +207,7 @@ async def run_batch(
                 )
             except SnapshotError as exc:
                 snapshot_error = _failure(BatchFailureCategory.SNAPSHOT, exc)
-        suites.append(SuiteRun(path, result=result, error=snapshot_error))
+        suites.append(SuiteRun(path, result=result, error=snapshot_error, remote=suite.server.is_remote))
 
     return BatchResult(
         suites=suites,

@@ -36,7 +36,8 @@ behaving that way:
   and flags weak tool definitions, including side-effecting tools that are
   unsafe to retry.
 
-MCP Rig currently launches local MCP servers over stdio and tests their tools.
+MCP Rig tests the tools of local stdio servers and of remote servers over
+Streamable HTTP or SSE.
 
 ## Quick start
 
@@ -161,6 +162,47 @@ followed by aggregate suite and case counts. A JUnit file contains one
 `<testsuite>` for every suite or invalid target beneath a shared `<testsuites>`
 root.
 
+### Test a remote server
+
+Point a suite at an HTTP endpoint instead of a command:
+
+```yaml
+server:
+  url: https://mcp.example.com/mcp
+  headers:
+    Authorization: "Bearer ${MCP_TOKEN}"
+
+tests:
+  - name: lists projects
+    call: list_projects
+    expect:
+      is_error: false
+```
+
+`url` uses Streamable HTTP. Add `transport: sse` for servers that still use the
+legacy SSE transport. The short form `server: https://mcp.example.com/mcp` works
+when no headers are needed. `url` cannot be combined with `command`, `args`,
+`env`, or `cwd`.
+
+`${NAME}` in `url` and header values is replaced with the environment variable
+`NAME` when the suite loads, so tokens stay out of committed files. A missing
+variable is a configuration error. `check` and `init` accept a URL too, with
+repeatable `--header` options:
+
+```bash
+mcp-rig check https://mcp.example.com/mcp --header "Authorization: Bearer $MCP_TOKEN"
+mcp-rig init https://mcp.example.com/mcp --header "Authorization: Bearer $MCP_TOKEN" --output tests/mcp/remote.yaml
+```
+
+`init` never writes header values. It writes references such as
+`${MCP_AUTHORIZATION}` and prints which variables to set.
+
+A rejected connection reports its HTTP status, for example
+`HTTP 401 Unauthorized`. After a transport error, a retry opens a new HTTP
+session. MCP Rig cannot restart a remote server, so its state is never reset;
+use `setup` and `teardown` steps for that. `--server-logs` only applies to
+local servers.
+
 ### Filter cases and tags
 
 Suites and individual cases can declare lowercase tags. Suite tags are
@@ -252,10 +294,10 @@ The [complete feature tour](https://github.com/gorkemgul/mcp-rig/tree/main/examp
 provides runnable local examples for every expectation, snapshots, tags and filters, server
 configuration, batch runs, JUnit, diagnostics, and `check`. Start with the
 [custom-server template](https://github.com/gorkemgul/mcp-rig/tree/main/examples/custom-server-template)
-when testing your own stdio server, and use the
+when testing your own server, and use the
 [GitHub Actions example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/ci) for CI.
 
-A suite names the stdio server command and the tool calls to verify:
+A suite names the server and the tool calls to verify:
 
 ```yaml
 server:
@@ -299,7 +341,9 @@ JSON. Each case may set a positive, finite `timeout_s`; the default is 30
 seconds. A timeout is an infrastructure error, aborts further calls on the
 shared session, and marks later cases as skipped. Set `after_timeout: continue`
 at the top of a suite to keep running later cases on the same session after a
-timeout. A closed connection still stops the suite.
+timeout. A case can override the suite setting with its own `after_timeout`, for
+example to let one known-slow case time out without stopping the suite. A
+closed connection still stops the suite.
 
 Terminal and JUnit reports distinguish four states:
 
@@ -355,9 +399,12 @@ MCP Rig does not retry calls by default. `retry.attempts` lets a case repeat its
 identical call after an infrastructure error. Assertion failures and tool
 errors are never retried. After a timeout the retry reuses the session; after a
 closed connection MCP Rig first starts a fresh server process, so only state
-kept outside that process survives. Terminal output lists each failed attempt,
-and JUnit records `mcp-rig.attempts` and `mcp-rig.retried.N` testcase
-properties.
+kept outside that process survives. Add `rerun_setup: true` to `retry` to run
+the suite's `setup` steps again on the new connection before the retried call.
+This option requires setup steps and has no effect after a timeout. If setup
+fails during the re-run, the case is an error. Terminal output lists each
+failed attempt, and JUnit records `mcp-rig.attempts` and `mcp-rig.retried.N`
+testcase properties.
 
 Retries matter for tools with side effects. A tool can commit and then lose its
 response, and the retry's JSON can pass `schema`, `json_path`, and `snapshot`
@@ -395,6 +442,22 @@ Lint warnings are advisory by default. Use `--strict` to make them fail CI:
 mcp-rig check "python path/to/server.py" --strict
 ```
 
+Heuristic warnings can be wrong for a particular server. Silence a code
+everywhere, or a code for one tool, with repeatable `--ignore` options:
+
+```bash
+mcp-rig check "python path/to/server.py" --strict \
+  --ignore similar-tools \
+  --ignore retry-unsafe:create_record
+```
+
+For `similar-tools`, either tool of the pair matches. Ignored warnings do not
+count toward `--strict`, and the summary reports how many were ignored. A
+pattern that matches nothing prints a warning, so stale ignores are noticed. An
+unknown code is a usage error. The codes are `no-description`,
+`short-description`, `invalid-schema`, `param-no-description`, `similar-tools`,
+and `retry-unsafe`.
+
 `--probe-invalid-args` calls every tool that declares required parameters with
 an empty argument object and checks that the call is rejected. Use this option
 only with development or test servers: a server that does not enforce its
@@ -415,7 +478,7 @@ For `check`, exit code `0` means all protocol checks passed, `1` means a
 protocol check failed or strict lint found warnings, and `2` means the command,
 server process, connection, or teardown failed.
 
-This release supports local stdio servers and tools only.
+MCP Rig tests tools; resources and prompts are not covered yet.
 
 Repository CI tests Python 3.11 through 3.13 and validates both wheel and
 source distributions without publishing them.

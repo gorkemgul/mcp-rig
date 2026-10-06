@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from pathlib import Path
 from typing import Any
@@ -88,7 +89,22 @@ def placeholder_value(schema: Any) -> Any:
     return _SCALAR_PLACEHOLDERS.get(kind)
 
 
+def header_variables(server: ServerSpec) -> dict[str, str]:
+    """Environment variable names that generated suites read header values from."""
+    return {name: "MCP_" + re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").upper() for name in server.headers}
+
+
 def _server_lines(server: ServerSpec, suite_path: Path | None) -> list[str]:
+    if server.is_remote:
+        lines = ["server:", f"  url: {_scalar(server.url)}"]
+        if server.transport != "streamable-http":
+            lines.append(f"  transport: {server.transport}")
+        variables = header_variables(server)
+        if variables:
+            lines.append("  headers:")
+            for name, variable in variables.items():
+                lines.append(f"    {_scalar(name)}: {_scalar('${' + variable + '}')}")
+        return lines
     cwd = _relative_cwd(suite_path)
     if cwd is None:
         return [f"server: {_scalar(_command_line(server))}"]

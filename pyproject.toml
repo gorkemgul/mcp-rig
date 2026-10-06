@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
   "mcp>=2.2,<3",
+  "httpx2>=2.10",
   "pyyaml>=6",
   "jsonschema>=4",
   "referencing>=0.28.4",
