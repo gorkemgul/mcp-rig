@@ -103,6 +103,8 @@ def test_release_workflow_drafts_a_release_from_version_tags_only():
     assert steps["Validate release tag"]["run"] == 'python scripts/check_release_tag.py "$RELEASE_TAG"'
     assert "scripts/changelog_section.py" in steps["Extract release notes"]["run"]
     assert "--draft" in steps["Create draft release"]["run"]
+    assert steps["Package agent skill"]["run"] == 'python scripts/package_skill.py "$RUNNER_TEMP/mcp-rig-skill.zip"'
+    assert '"$RUNNER_TEMP/mcp-rig-skill.zip"' in steps["Create draft release"]["run"]
     assert {step["uses"] for step in job["steps"] if "uses" in step} == PINNED_ACTIONS
 
 

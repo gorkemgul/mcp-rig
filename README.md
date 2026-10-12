@@ -649,3 +649,14 @@ The action installs MCP Rig into an isolated environment and fails the job when
 a suite fails. See the
 [GitHub Actions example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/ci)
 for every input.
+
+## Use it from a coding agent
+
+[`skills/mcp-rig`](skills/mcp-rig) is an agent skill in the `SKILL.md` format
+used by Claude Code, Codex, Cursor, and other coding agents. It tells the agent
+when MCP Rig applies and walks it through `check`, `init`, filling in real
+cases, `verify` and `fault` for side-effecting tools, `coverage`, and CI.
+
+Copy the folder into your agent's skills directory, for example
+`.claude/skills/mcp-rig/` in a project that uses Claude Code. Each GitHub
+Release also carries the skill as `mcp-rig-skill.zip`.

@@ -33,6 +33,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python scripts/changelog_section.py "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
+      - name: Package agent skill
+        run: python scripts/package_skill.py "$RUNNER_TEMP/mcp-rig-skill.zip"
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,4 +45,5 @@ jobs:
             --draft \
             --verify-tag \
             --title "$RELEASE_TAG" \
-            --notes-file "$RUNNER_TEMP/release-notes.md"
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "$RUNNER_TEMP/mcp-rig-skill.zip"
